@@ -1,0 +1,134 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <title>BLE Recorder</title>
+    <link rel="icon" href="favicon.ico"/>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta name="description" content="BLE oscilloscope and recorder">
+    <link href="css/test.css" rel="stylesheet">
+  </head>
+  <body>
+    <main id="app">
+      <header class="toolbar">
+        <label class="control-label">Transport
+          <select id="transport-select" aria-label="Connection transport">
+            <option value="ble">Bluetooth</option>
+            <option value="usb">USB Serial</option>
+          </select>
+        </label>
+        <button type="button" id="bt-btn">Connect</button>
+        <button type="button" id="fullscreen-btn" aria-pressed="false">Full screen</button>
+        <button type="button" id="bt-btn2" disabled>Suspend</button>
+        <button type="button" id="download-btn">Download .BIN</button>
+        <button type="button" id="clear-btn">Clear</button>
+        <button type="button" id="upload-btn">Open .BIN</button>
+        <label class="control-label">Channel
+          <select id="channel-select" aria-label="Displayed channel">
+            <option value="V">V</option>
+            <option value="I">I</option>
+            <option value="VI">V+I</option>
+          </select>
+        </label>
+        <label class="control-label">Mode
+          <select id="chart-mode" aria-label="Chart mode">
+            <option value="history">History</option>
+            <option value="scope">Oscilloscope</option>
+          </select>
+        </label>
+        <label class="control-label">Time/div
+          <select id="time-div" aria-label="Time per division">
+            <option value="0.001">1 ms</option>
+            <option value="0.002">2 ms</option>
+            <option value="0.005">5 ms</option>
+            <option value="0.01">10 ms</option>
+            <option value="0.02">20 ms</option>
+            <option value="0.05">50 ms</option>
+            <option value="0.1">100 ms</option>
+            <option value="0.2">200 ms</option>
+            <option value="0.5">500 ms</option>
+            <option value="1">1 s</option>
+            <option value="2">2 s</option>
+            <option value="5">5 s</option>
+            <option value="10">10 s</option>
+            <option value="30">30 s</option>
+            <option value="60">1 min</option>
+          </select>
+        </label>
+        <label class="control-label">V/div
+          <select id="voltage-div" aria-label="Voltage per division">
+            <option value="0.01">10 mV</option>
+            <option value="0.02">20 mV</option>
+            <option value="0.05">50 mV</option>
+            <option value="0.1">100 mV</option>
+            <option value="0.2">200 mV</option>
+            <option value="0.5">500 mV</option>
+            <option value="1">1 V</option>
+            <option value="2">2 V</option>
+            <option value="5" selected>5 V</option>
+            <option value="10">10 V</option>
+            <option value="20">20 V</option>
+          </select>
+        </label>
+        <label class="control-label">A/div
+          <select id="current-div" aria-label="Current per division">
+            <option value="0.001">1 mA</option>
+            <option value="0.002">2 mA</option>
+            <option value="0.005">5 mA</option>
+            <option value="0.01">10 mA</option>
+            <option value="0.02">20 mA</option>
+            <option value="0.05">50 mA</option>
+            <option value="0.1">100 mA</option>
+            <option value="0.2">200 mA</option>
+            <option value="0.5" selected>500 mA</option>
+            <option value="1">1 A</option>
+            <option value="2">2 A</option>
+            <option value="5">5 A</option>
+            <option value="10">10 A</option>
+            <option value="20">20 A</option>
+            <option value="50">50 A</option>
+          </select>
+        </label>
+        <label class="readout-toggle"><input type="checkbox" id="readout-v-toggle"> Readout V</label>
+        <label class="readout-toggle"><input type="checkbox" id="readout-i-toggle"> Readout I</label>
+        <button type="button" id="cursor-btn" aria-pressed="false">Cursors: Off</button>
+        <form id="tx-form" class="tx-form">
+          <input id="tx-msg" type="text" aria-label="Command for ESP32" value="start" autocomplete="off" disabled>
+          <button type="submit" disabled>Send</button>
+        </form>
+      </header>
+      <section class="status-bar" aria-live="polite">
+        <pre id="rx-msg">Rx: waiting for connection</pre>
+        <div id="label1">Recorded: 0 samples · 0 bytes</div>
+      </section>
+      <section class="chart-panel">
+        <canvas id="mainChart" aria-label="Recorded signal chart"></canvas>
+        <div class="chart-legend">
+          <span class="voltage-key">V, V</span>
+          <span class="current-key">I, A</span>
+          <span id="chart-info"></span>
+        </div>
+        <div id="readout" class="readout" aria-label="Latest averaged values">
+          <div id="readout-voltage">---.--- V</div>
+          <div id="readout-current">---.--- A</div>
+          <span class="readout-resize" aria-hidden="true"></span>
+        </div>
+      </section>
+      <section class="navigator-panel">
+        <canvas id="navChart" aria-label="Recording overview and range selector"></canvas>
+      </section>
+    </main>
+    <div id="connection-alert" class="connection-alert" role="alertdialog" aria-modal="true" aria-labelledby="connection-alert-title" hidden>
+      <div class="connection-alert-card">
+        <h2 id="connection-alert-title">Connection interrupted</h2>
+        <p id="connection-alert-message">No data has been received. Check the device and reconnect.</p>
+        <div class="connection-alert-actions">
+          <button type="button" id="connection-cancel">Cancel</button>
+          <button type="button" id="connection-reconnect">Reconnect</button>
+        </div>
+      </div>
+    </div>
+    <script src="js/ble_mx_api.js"></script>
+    <script src="js/test.js"></script>
+  </body>
+</html>

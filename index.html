@@ -11,87 +11,113 @@
   <body>
     <main id="app">
       <header class="toolbar">
-        <label class="control-label">Transport
-          <select id="transport-select" aria-label="Connection transport">
-            <option value="ble">Bluetooth</option>
-            <option value="usb">USB Serial</option>
-          </select>
-        </label>
         <button type="button" id="bt-btn">Connect</button>
-        <button type="button" id="fullscreen-btn" aria-pressed="false">Full screen</button>
-        <button type="button" id="bt-btn2" disabled>Suspend</button>
-        <button type="button" id="download-btn">Download .BIN</button>
-        <button type="button" id="clear-btn">Clear</button>
-        <button type="button" id="upload-btn">Open .BIN</button>
-        <label class="control-label">Channel
-          <select id="channel-select" aria-label="Displayed channel">
-            <option value="V">V</option>
-            <option value="I">I</option>
-            <option value="VI">V+I</option>
-          </select>
-        </label>
-        <label class="control-label">Mode
-          <select id="chart-mode" aria-label="Chart mode">
-            <option value="history">History</option>
-            <option value="scope">Oscilloscope</option>
-          </select>
-        </label>
-        <label class="control-label">Time/div
-          <select id="time-div" aria-label="Time per division">
-            <option value="0.001">1 ms</option>
-            <option value="0.002">2 ms</option>
-            <option value="0.005">5 ms</option>
-            <option value="0.01">10 ms</option>
-            <option value="0.02">20 ms</option>
-            <option value="0.05">50 ms</option>
-            <option value="0.1">100 ms</option>
-            <option value="0.2">200 ms</option>
-            <option value="0.5">500 ms</option>
-            <option value="1">1 s</option>
-            <option value="2">2 s</option>
-            <option value="5">5 s</option>
-            <option value="10">10 s</option>
-            <option value="30">30 s</option>
-            <option value="60">1 min</option>
-          </select>
-        </label>
-        <label class="control-label">V/div
-          <select id="voltage-div" aria-label="Voltage per division">
-            <option value="0.01">10 mV</option>
-            <option value="0.02">20 mV</option>
-            <option value="0.05">50 mV</option>
-            <option value="0.1">100 mV</option>
-            <option value="0.2">200 mV</option>
-            <option value="0.5">500 mV</option>
-            <option value="1">1 V</option>
-            <option value="2">2 V</option>
-            <option value="5" selected>5 V</option>
-            <option value="10">10 V</option>
-            <option value="20">20 V</option>
-          </select>
-        </label>
-        <label class="control-label">A/div
-          <select id="current-div" aria-label="Current per division">
-            <option value="0.001">1 mA</option>
-            <option value="0.002">2 mA</option>
-            <option value="0.005">5 mA</option>
-            <option value="0.01">10 mA</option>
-            <option value="0.02">20 mA</option>
-            <option value="0.05">50 mA</option>
-            <option value="0.1">100 mA</option>
-            <option value="0.2">200 mA</option>
-            <option value="0.5" selected>500 mA</option>
-            <option value="1">1 A</option>
-            <option value="2">2 A</option>
-            <option value="5">5 A</option>
-            <option value="10">10 A</option>
-            <option value="20">20 A</option>
-            <option value="50">50 A</option>
-          </select>
-        </label>
-        <label class="readout-toggle"><input type="checkbox" id="readout-v-toggle"> Readout V</label>
-        <label class="readout-toggle"><input type="checkbox" id="readout-i-toggle"> Readout I</label>
-        <button type="button" id="cursor-btn" aria-pressed="false">Cursors: Off</button>
+        <details class="toolbar-group">
+          <summary>Connection</summary>
+          <div class="toolbar-group-content">
+            <details id="transport-select" class="choice-menu" data-value="ble">
+              <summary>Transport <strong class="choice-value">Bluetooth</strong></summary>
+              <div class="choice-options">
+                <button type="button" data-value="ble">Bluetooth</button>
+                <button type="button" data-value="usb">USB Serial</button>
+              </div>
+            </details>
+            <button type="button" id="fullscreen-btn" aria-pressed="false">Full screen</button>
+            <button type="button" id="bt-btn2" disabled>Suspend</button>
+          </div>
+        </details>
+        <details class="toolbar-group">
+          <summary>View</summary>
+          <div class="toolbar-group-content">
+            <details id="channel-select" class="choice-menu" data-value="V">
+              <summary>Channel <strong class="choice-value">V</strong></summary>
+              <div class="choice-options">
+                <button type="button" data-value="V">Voltage</button>
+                <button type="button" data-value="I">Current</button>
+                <button type="button" data-value="VI">V + I</button>
+              </div>
+            </details>
+            <details id="chart-mode" class="choice-menu" data-value="history">
+              <summary>Mode <strong class="choice-value">History</strong></summary>
+              <div class="choice-options">
+                <button type="button" data-value="history">History</button>
+                <button type="button" data-value="scope">Oscilloscope</button>
+              </div>
+            </details>
+            <label class="readout-toggle"><input type="checkbox" id="readout-v-toggle"> Readout V</label>
+            <label class="readout-toggle"><input type="checkbox" id="readout-i-toggle"> Readout I</label>
+            <button type="button" id="cursor-btn" aria-pressed="false">Cursors: Off</button>
+          </div>
+        </details>
+        <details class="toolbar-group">
+          <summary>Scales</summary>
+          <div class="toolbar-group-content">
+            <details id="time-div" class="choice-menu" data-value="0.001">
+              <summary>Time/div <strong class="choice-value">1 ms</strong></summary>
+              <div class="choice-options">
+                <button type="button" data-value="0.001">1 ms</button>
+                <button type="button" data-value="0.002">2 ms</button>
+                <button type="button" data-value="0.005">5 ms</button>
+                <button type="button" data-value="0.01">10 ms</button>
+                <button type="button" data-value="0.02">20 ms</button>
+                <button type="button" data-value="0.05">50 ms</button>
+                <button type="button" data-value="0.1">100 ms</button>
+                <button type="button" data-value="0.2">200 ms</button>
+                <button type="button" data-value="0.5">500 ms</button>
+                <button type="button" data-value="1">1 s</button>
+                <button type="button" data-value="2">2 s</button>
+                <button type="button" data-value="5">5 s</button>
+                <button type="button" data-value="10">10 s</button>
+                <button type="button" data-value="30">30 s</button>
+                <button type="button" data-value="60">1 min</button>
+              </div>
+            </details>
+            <details id="voltage-div" class="choice-menu" data-value="5">
+              <summary>V/div <strong class="choice-value">5 V</strong></summary>
+              <div class="choice-options">
+                <button type="button" data-value="0.01">10 mV</button>
+                <button type="button" data-value="0.02">20 mV</button>
+                <button type="button" data-value="0.05">50 mV</button>
+                <button type="button" data-value="0.1">100 mV</button>
+                <button type="button" data-value="0.2">200 mV</button>
+                <button type="button" data-value="0.5">500 mV</button>
+                <button type="button" data-value="1">1 V</button>
+                <button type="button" data-value="2">2 V</button>
+                <button type="button" data-value="5">5 V</button>
+                <button type="button" data-value="10">10 V</button>
+                <button type="button" data-value="20">20 V</button>
+              </div>
+            </details>
+            <details id="current-div" class="choice-menu" data-value="0.5">
+              <summary>A/div <strong class="choice-value">500 mA</strong></summary>
+              <div class="choice-options">
+                <button type="button" data-value="0.001">1 mA</button>
+                <button type="button" data-value="0.002">2 mA</button>
+                <button type="button" data-value="0.005">5 mA</button>
+                <button type="button" data-value="0.01">10 mA</button>
+                <button type="button" data-value="0.02">20 mA</button>
+                <button type="button" data-value="0.05">50 mA</button>
+                <button type="button" data-value="0.1">100 mA</button>
+                <button type="button" data-value="0.2">200 mA</button>
+                <button type="button" data-value="0.5">500 mA</button>
+                <button type="button" data-value="1">1 A</button>
+                <button type="button" data-value="2">2 A</button>
+                <button type="button" data-value="5">5 A</button>
+                <button type="button" data-value="10">10 A</button>
+                <button type="button" data-value="20">20 A</button>
+                <button type="button" data-value="50">50 A</button>
+              </div>
+            </details>
+          </div>
+        </details>
+        <details class="toolbar-group">
+          <summary>Recording</summary>
+          <div class="toolbar-group-content">
+            <button type="button" id="download-btn">Download .BIN</button>
+            <button type="button" id="clear-btn">Clear</button>
+            <button type="button" id="upload-btn">Open .BIN</button>
+          </div>
+        </details>
         <form id="tx-form" class="tx-form">
           <input id="tx-msg" type="text" aria-label="Command for ESP32" value="start" autocomplete="off" disabled>
           <button type="submit" disabled>Send</button>

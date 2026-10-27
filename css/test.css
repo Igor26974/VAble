@@ -23,7 +23,8 @@ body {
 
 button,
 input,
-select {
+.toolbar-group > summary,
+.choice-menu > summary {
   min-height: 34px;
   border: 1px solid #555;
   border-radius: 4px;
@@ -54,11 +55,12 @@ button:disabled {
 .toolbar {
   display: flex;
   flex: 0 0 auto;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
+  gap: 6px;
   min-height: 36px;
-  overflow-x: auto;
-  scrollbar-width: thin;
+  position: relative;
+  z-index: 4;
 }
 
 .toolbar button,
@@ -66,22 +68,114 @@ button:disabled {
   flex: 0 0 auto;
 }
 
-.control-label {
-  display: flex;
+.toolbar-group {
+  position: relative;
   flex: 0 0 auto;
-  align-items: center;
-  gap: 5px;
-  white-space: nowrap;
 }
 
-#channel-select,
-#chart-mode,
-#transport-select,
-#time-div,
-#voltage-div,
-#current-div {
-  min-width: 58px;
-  padding: 4px;
+.toolbar-group > summary,
+.choice-menu > summary {
+  display: flex;
+  min-height: 34px;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 10px;
+  border: 1px solid #555;
+  border-radius: 4px;
+  background: #303030;
+  color: #eee;
+  font-size: 13px;
+  list-style: none;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.toolbar-group > summary::-webkit-details-marker,
+.choice-menu > summary::-webkit-details-marker {
+  display: none;
+}
+
+.toolbar-group > summary::after,
+.choice-menu > summary::after {
+  content: "▾";
+  color: #9dc9e4;
+  font-size: 11px;
+}
+
+.toolbar-group[open] > summary,
+.choice-menu[open] > summary {
+  border-color: #389bd4;
+}
+
+.toolbar-group-content {
+  position: absolute;
+  top: calc(100% + 5px);
+  left: 0;
+  display: flex;
+  min-width: 190px;
+  flex-direction: column;
+  gap: 6px;
+  padding: 9px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #20252b;
+  box-shadow: 0 8px 24px #000b;
+}
+
+.toolbar-group-content > button {
+  width: 100%;
+  text-align: left;
+}
+
+.choice-menu {
+  position: relative;
+}
+
+.choice-menu > summary {
+  justify-content: space-between;
+}
+
+.choice-value {
+  color: #9ddcff;
+  font-weight: 400;
+}
+
+.choice-options {
+  position: absolute;
+  z-index: 6;
+  top: calc(100% + 4px);
+  left: 0;
+  display: none;
+  width: max-content;
+  min-width: 150px;
+  max-width: min(290px, calc(100vw - 24px));
+  max-height: min(55vh, 360px);
+  grid-template-columns: repeat(2, minmax(85px, 1fr));
+  gap: 4px;
+  overflow: auto;
+  padding: 6px;
+  border: 1px solid #555;
+  border-radius: 5px;
+  background: #181c20;
+  box-shadow: 0 8px 24px #000c;
+}
+
+.choice-menu[open] > .choice-options {
+  display: grid;
+}
+
+.choice-options button {
+  min-width: 0;
+  text-align: left;
+}
+
+.choice-options button[aria-pressed="true"] {
+  border-color: #389bd4;
+  background: #174b69;
+}
+
+.choice-menu.disabled {
+  opacity: .55;
 }
 
 .readout-toggle {
@@ -307,15 +401,17 @@ canvas {
     gap: 3px;
   }
 
-  .toolbar {
-    min-height: 34px;
-  }
-
   .toolbar button,
   button,
-  input,
-  select {
+  input {
     min-height: 31px;
+    font-size: 12px;
+  }
+
+  .toolbar-group > summary,
+  .choice-menu > summary {
+    min-height: 31px;
+    padding: 4px 7px;
     font-size: 12px;
   }
 

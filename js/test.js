@@ -62,6 +62,34 @@ let uploadDailyLog = () => {};
 	const navContext = navCanvas.getContext('2d');
 	const settings = loadSettings();
 
+	class NativeBleTransport {
+		constructor(frameCallback) {
+			this.connected = false;
+			this.device = { name: 'ESP32' };
+			this.decoder = new ConnectionExt(frameCallback, false);
+		}
+
+		is_connected() {
+			return this.connected;
+		}
+
+		is_redonly() {
+			return false;
+		}
+
+		write(data) {
+			const bytes = data instanceof DataView
+				? new Uint8Array(data.buffer, data.byteOffset, data.byteLength)
+				: new Uint8Array(data.buffer, data.byteOffset || 0, data.byteLength);
+			window.AndroidApp.writeBle(bytesToBase64(bytes));
+		}
+
+		receiveBase64(encoded) {
+			const bytes = base64ToBytes(encoded);
+			this.decoder.receive(new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength));
+		}
+	}
+
 	const series = {
 		samples: [],
 		vMin: [],
@@ -87,6 +115,7 @@ let uploadDailyLog = () => {};
 	let usbReader = null;
 	let usbWriter = null;
 	let usbReceiveBuffer = new Uint8Array(0);
+	let selectedNativeUsb = false;
 	let storageReady = false;
 	let suspended = false;
 	let packetCount = 0;
@@ -167,18 +196,18 @@ let uploadDailyLog = () => {};
 			return {
 				channel: ['V', 'I', 'VI'].includes(stored.channel) ? stored.channel : defaults.channel,
 				chartMode: ['history', 'scope'].includes(stored.chartMode) ? stored.chartMode : defaults.chartMode,
-				timePerDivisionSeconds: Array.from(document.getElementById('time-div').options)
-					.map((option) => Number(option.value))
+				timePerDivisionSeconds: getChoiceValues(document.getElementById('time-div'))
+					.map(Number)
 					.includes(Number(stored.timePerDivisionSeconds))
 					? Number(stored.timePerDivisionSeconds)
 					: defaults.timePerDivisionSeconds,
-				voltagePerDivision: Array.from(document.getElementById('voltage-div').options)
-					.map((option) => Number(option.value))
+				voltagePerDivision: getChoiceValues(document.getElementById('voltage-div'))
+					.map(Number)
 					.includes(Number(stored.voltagePerDivision))
 					? Number(stored.voltagePerDivision)
 					: defaults.voltagePerDivision,
-				currentPerDivision: Array.from(document.getElementById('current-div').options)
-					.map((option) => Number(option.value))
+				currentPerDivision: getChoiceValues(document.getElementById('current-div'))
+					.map(Number)
 					.includes(Number(stored.currentPerDivision))
 					? Number(stored.currentPerDivision)
 					: defaults.currentPerDivision,
@@ -245,6 +274,51 @@ let uploadDailyLog = () => {};
 
 	function setStatus(message) {
 		rxOutput.textContent = message;
+	}
+
+	function bytesToBase64(bytes) {
+		let binary = '';
+		for (let offset = 0; offset < bytes.length; offset += 0x8000) {
+			binary += String.fromCharCode(...bytes.subarray(offset, Math.min(offset + 0x8000, bytes.length)));
+		}
+		return btoa(binary);
+	}
+
+	function base64ToBytes(encoded) {
+		const binary = atob(encoded);
+		const bytes = new Uint8Array(binary.length);
+		for (let index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+		return bytes;
+	}
+
+	function getChoiceValues(menu) {
+		return Array.from(menu.querySelectorAll('.choice-options button')).map((button) => button.dataset.value);
+	}
+
+	function getChoiceValue(menu) {
+		return menu.dataset.value;
+	}
+
+	function setChoiceValue(menu, value) {
+		const selectedOption = Array.from(menu.querySelectorAll('.choice-options button'))
+			.find((button) => button.dataset.value === String(value));
+		if (!selectedOption) return;
+		menu.dataset.value = selectedOption.dataset.value;
+		menu.querySelector('.choice-value').textContent = selectedOption.textContent;
+		menu.querySelectorAll('.choice-options button').forEach((button) => {
+			const selected = button === selectedOption;
+			button.setAttribute('aria-pressed', String(selected));
+		});
+	}
+
+	function bindChoiceMenu(menu) {
+		menu.querySelector('.choice-options').addEventListener('click', (event) => {
+			const option = event.target.closest('button[data-value]');
+			if (!option || menu.getAttribute('aria-disabled') === 'true') return;
+			setChoiceValue(menu, option.dataset.value);
+			menu.open = false;
+			menu.dispatchEvent(new Event('change', { bubbles: true }));
+		});
 	}
 
 	function applyReadoutSettings() {
@@ -357,11 +431,19 @@ let uploadDailyLog = () => {};
 	}
 
 	function initPage() {
-		channelSelect.value = channel;
-		chartModeSelect.value = chartMode;
-		timeDivSelect.value = String(timePerDivisionSeconds);
-		voltageDivSelect.value = String(voltagePerDivision);
-		currentDivSelect.value = String(currentPerDivision);
+		[
+			transportSelect,
+			channelSelect,
+			chartModeSelect,
+			timeDivSelect,
+			voltageDivSelect,
+			currentDivSelect
+		].forEach(bindChoiceMenu);
+		setChoiceValue(channelSelect, channel);
+		setChoiceValue(chartModeSelect, chartMode);
+		setChoiceValue(timeDivSelect, timePerDivisionSeconds);
+		setChoiceValue(voltageDivSelect, voltagePerDivision);
+		setChoiceValue(currentDivSelect, currentPerDivision);
 		readoutVoltageToggle.checked = overlayShowVoltage;
 		readoutCurrentToggle.checked = overlayShowCurrent;
 		const cursorButton = document.getElementById('cursor-btn');
@@ -382,30 +464,57 @@ let uploadDailyLog = () => {};
 		document.getElementById('cursor-btn').addEventListener('click', toggleCursors);
 		connectionCancelButton.addEventListener('click', dismissConnectionAlert);
 		connectionReconnectButton.addEventListener('click', reconnectSelectedDevice);
+		let menuTimeout = null;
+		const toolbar = document.querySelector('.toolbar');
+		const allMenus = toolbar.querySelectorAll('details');
+		const resetMenuTimeout = () => {
+			if (menuTimeout !== null) window.clearTimeout(menuTimeout);
+			menuTimeout = null;
+			if (!toolbar.querySelector('details[open]')) return;
+			menuTimeout = window.setTimeout(() => {
+				allMenus.forEach((menu) => {
+					menu.open = false;
+				});
+				menuTimeout = null;
+			}, 5000);
+		};
+		toolbar.addEventListener('pointerdown', resetMenuTimeout);
+		toolbar.addEventListener('click', resetMenuTimeout);
+		toolbar.addEventListener('keydown', resetMenuTimeout);
+		allMenus.forEach((menu) => {
+			menu.addEventListener('toggle', () => {
+				if (menu.matches('.toolbar-group') && menu.open) {
+					toolbar.querySelectorAll('.toolbar-group').forEach((otherGroup) => {
+						if (otherGroup !== menu) otherGroup.open = false;
+					});
+				}
+				resetMenuTimeout();
+			});
+		});
 		channelSelect.addEventListener('change', (event) => {
-			channel = event.target.value;
+			channel = getChoiceValue(event.currentTarget);
 			saveSettings();
 			requestRender(true);
 		});
 		chartModeSelect.addEventListener('change', (event) => {
-			chartMode = event.target.value;
+			chartMode = getChoiceValue(event.currentTarget);
 			if (chartMode === 'scope') scrollToScopeWindow();
 			saveSettings();
 			requestRender(true);
 		});
 		timeDivSelect.addEventListener('change', (event) => {
-			timePerDivisionSeconds = Number(event.target.value);
+			timePerDivisionSeconds = Number(getChoiceValue(event.currentTarget));
 			if (chartMode === 'scope') scrollToScopeWindow();
 			saveSettings();
 			requestRender(true);
 		});
 		voltageDivSelect.addEventListener('change', (event) => {
-			voltagePerDivision = Number(event.target.value);
+			voltagePerDivision = Number(getChoiceValue(event.currentTarget));
 			requestRender(true);
 			saveSettings();
 		});
 		currentDivSelect.addEventListener('change', (event) => {
-			currentPerDivision = Number(event.target.value);
+			currentPerDivision = Number(getChoiceValue(event.currentTarget));
 			requestRender(true);
 			saveSettings();
 		});
@@ -440,10 +549,12 @@ let uploadDailyLog = () => {};
 		window.setInterval(checkConnectionHealth, 500);
 		applyReadoutSettings();
 
-		if (navigator.bluetooth) {
+		if (window.AndroidApp) {
+			btConnection = new NativeBleTransport(receiveFrame);
+		} else if (navigator.bluetooth) {
 			btConnection = new Connection(receiveFrame, dualMode);
 		}
-		if (!navigator.bluetooth && navigator.serial) transportSelect.value = 'usb';
+		if (!navigator.bluetooth && navigator.serial) setChoiceValue(transportSelect, 'usb');
 		updateConnectionControls();
 		if (!navigator.bluetooth && !navigator.serial) {
 			setStatus('Bluetooth and USB Serial are not supported by this browser. Use Chrome or Edge.');
@@ -545,21 +656,31 @@ let uploadDailyLog = () => {};
 	}
 
 	function updateConnectionControls() {
-		const supported = transportSelect.value === 'usb'
-			? Boolean(navigator.serial)
-			: Boolean(navigator.bluetooth && btConnection);
+		const supported = getChoiceValue(transportSelect) === 'usb'
+			? Boolean(navigator.serial || window.AndroidApp)
+			: Boolean((navigator.bluetooth || window.AndroidApp) && btConnection);
 		connectButton.disabled = !storageReady || !supported || activeTransport !== null;
-		transportSelect.disabled = activeTransport !== null;
+		transportSelect.setAttribute('aria-disabled', String(activeTransport !== null));
+		transportSelect.classList.toggle('disabled', activeTransport !== null);
 	}
 
 	function onConnectClick() {
 		requestScreenWakeLock();
 		prepareAudio();
-		if (transportSelect.value === 'usb') {
+		if (getChoiceValue(transportSelect) === 'usb') {
 			connectUSB();
 			return;
 		}
 		if (!btConnection || btConnection.is_connected()) return;
+		if (window.AndroidApp) {
+			activeTransport = 'ble';
+			connectButton.disabled = true;
+			transportSelect.setAttribute('aria-disabled', 'true');
+			transportSelect.classList.add('disabled');
+			setStatus('Bluetooth: searching for ESP32 devices…');
+			window.AndroidApp.connectBle();
+			return;
+		}
 
 		let deviceRequest;
 		try {
@@ -573,7 +694,8 @@ let uploadDailyLog = () => {};
 		}
 
 		connectButton.disabled = true;
-		transportSelect.disabled = true;
+		transportSelect.setAttribute('aria-disabled', 'true');
+		transportSelect.classList.add('disabled');
 		setStatus('Bluetooth: searching for devices…');
 		deviceRequest.then((device) => {
 			selectedDevice = device;
@@ -591,6 +713,7 @@ let uploadDailyLog = () => {};
 	function onConnected(device) {
 		activeTransport = 'ble';
 		selectedDevice = device;
+		if (btConnection instanceof NativeBleTransport) btConnection.connected = true;
 		lastPacketArrivalAt = performance.now();
 		receivedPacketSinceConnection = false;
 		if (!timingCalibrated) {
@@ -629,6 +752,7 @@ let uploadDailyLog = () => {};
 
 	function onDisconnected(device) {
 		activeTransport = null;
+		if (btConnection instanceof NativeBleTransport) btConnection.connected = false;
 		connectButton.textContent = 'Connect';
 		suspendButton.disabled = true;
 		txInput.disabled = true;
@@ -641,6 +765,15 @@ let uploadDailyLog = () => {};
 	}
 
 	async function connectUSB(port = null) {
+		if (window.AndroidApp) {
+			selectedNativeUsb = true;
+			connectButton.disabled = true;
+			transportSelect.setAttribute('aria-disabled', 'true');
+			transportSelect.classList.add('disabled');
+			setStatus('USB: searching for a connected ESP32…');
+			window.AndroidApp.connectUsb();
+			return;
+		}
 		if (!navigator.serial) {
 			setStatus('USB Serial is not supported. Use Chrome or Edge on a supported page.');
 			return;
@@ -834,7 +967,7 @@ let uploadDailyLog = () => {};
 		if (connectionAlertDismissed || !connectionAlert.hidden) return;
 		connectionAlertMessage.textContent = message;
 		connectionAlert.hidden = false;
-		connectionReconnectButton.disabled = !(selectedDevice || selectedSerialPort);
+		connectionReconnectButton.disabled = !(selectedDevice || selectedSerialPort || selectedNativeUsb);
 		playConnectionAlertSound();
 		connectionAlertSoundTimer = window.setInterval(() => {
 			if (!connectionAlert.hidden && !connectionAlertDismissed) playConnectionAlertSound();
@@ -866,7 +999,30 @@ let uploadDailyLog = () => {};
 	}
 
 	function reconnectSelectedDevice() {
-		if (transportSelect.value === 'usb') {
+		if (getChoiceValue(transportSelect) === 'ble' && window.AndroidApp) {
+			connectionReconnectButton.disabled = true;
+			connectionAlertMessage.textContent = 'Reconnecting to ESP32 over Bluetooth…';
+			connectionAlertDismissed = false;
+			if (connectionAlertSoundTimer !== null) {
+				window.clearInterval(connectionAlertSoundTimer);
+				connectionAlertSoundTimer = null;
+			}
+			activeTransport = 'ble';
+			window.AndroidApp.connectBle();
+			return;
+		}
+		if (getChoiceValue(transportSelect) === 'usb' && window.AndroidApp) {
+			connectionReconnectButton.disabled = true;
+			connectionAlertMessage.textContent = 'Reconnecting to ESP32 over USB…';
+			connectionAlertDismissed = false;
+			if (connectionAlertSoundTimer !== null) {
+				window.clearInterval(connectionAlertSoundTimer);
+				connectionAlertSoundTimer = null;
+			}
+			connectUSB();
+			return;
+		}
+		if (getChoiceValue(transportSelect) === 'usb') {
 			connectionReconnectButton.disabled = true;
 			connectionAlertMessage.textContent = 'Reconnecting to USB Serial…';
 			connectionAlertDismissed = false;
@@ -904,6 +1060,16 @@ let uploadDailyLog = () => {};
 	function onSendCommand(event) {
 		event.preventDefault();
 		const command = `${txInput.value.trim()}\r`;
+		if (activeTransport === 'usb' && window.AndroidApp && selectedNativeUsb) {
+			try {
+				window.AndroidApp.writeUsb(bytesToBase64(new TextEncoder().encode(command)));
+				setStatus(`Command sent over USB: ${txInput.value.trim()}`);
+			} catch (error) {
+				console.error('USB command write failed:', error);
+				setStatus(`USB write error: ${error.message}`);
+			}
+			return;
+		}
 		if (activeTransport === 'usb' && usbWriter) {
 			usbWriter.write(new TextEncoder().encode(command)).then(() => {
 				setStatus(`Command sent over USB: ${txInput.value.trim()}`);
@@ -1954,6 +2120,83 @@ let uploadDailyLog = () => {};
 		setStatus(`Opened ${file.name} · ${formatBytes(file.size)}`);
 		requestRender(true);
 	}
+
+	window.onNativeBleConnected = (name) => {
+		onConnected({ name: name || 'ESP32' });
+	};
+	window.onNativeBleData = (encoded) => {
+		if (!btConnection || !(btConnection instanceof NativeBleTransport)) return;
+		try {
+			btConnection.receiveBase64(encoded);
+		} catch (error) {
+			console.error('Invalid BLE data received from Android:', error);
+			setStatus(`BLE packet error: ${error.message}`);
+		}
+	};
+	window.onNativeBleDisconnected = (name, reason) => {
+		onDisconnected({ name: name || 'ESP32' });
+		if (reason) setStatus(`Bluetooth disconnected: ${reason}`);
+	};
+	window.onNativeBleFailed = (message) => {
+		activeTransport = null;
+		if (btConnection instanceof NativeBleTransport) btConnection.connected = false;
+		connectButton.textContent = 'Connect';
+		updateConnectionControls();
+		setStatus(`Bluetooth error: ${message}`);
+		if (!connectionAlert.hidden) {
+			connectionReconnectButton.disabled = !(selectedDevice || selectedNativeUsb);
+			connectionAlertMessage.textContent = `Reconnect failed: ${message}`;
+		}
+	};
+	window.onNativeUsbConnected = (name) => {
+		activeTransport = 'usb';
+		selectedNativeUsb = true;
+		usbReader = { native: true };
+		lastPacketArrivalAt = performance.now();
+		receivedPacketSinceConnection = false;
+		dismissConnectionAlert(false);
+		connectButton.textContent = 'Connected (USB)';
+		suspendButton.disabled = false;
+		txInput.disabled = false;
+		txForm.querySelector('button').disabled = false;
+		txForm.classList.add('active');
+		updateConnectionControls();
+		setStatus(`USB connected: ${name || 'ESP32'}`);
+	};
+	window.onNativeUsbData = (encoded) => {
+		try {
+			receiveUSBBytes(base64ToBytes(encoded));
+		} catch (error) {
+			console.error('Invalid USB data received from Android:', error);
+			setStatus(`USB packet error: ${error.message}`);
+		}
+	};
+	window.onNativeUsbDisconnected = (name, reason) => {
+		activeTransport = null;
+		usbReader = null;
+		connectButton.textContent = 'Connect';
+		suspendButton.disabled = true;
+		txInput.disabled = true;
+		txForm.querySelector('button').disabled = true;
+		updateConnectionControls();
+		setStatus(reason
+			? `USB disconnected: ${reason}`
+			: `USB disconnected: ${name || 'ESP32'}`);
+		if (receivedPacketSinceConnection) {
+			showConnectionAlert('USB connection was lost. Reconnect to resume receiving data.');
+		}
+	};
+	window.onNativeUsbFailed = (message) => {
+		activeTransport = null;
+		usbReader = null;
+		connectButton.textContent = 'Connect';
+		updateConnectionControls();
+		setStatus(`USB error: ${message}`);
+		if (!connectionAlert.hidden) {
+			connectionReconnectButton.disabled = false;
+			connectionAlertMessage.textContent = `Reconnect failed: ${message}`;
+		}
+	};
 
 	initPage();
 })();

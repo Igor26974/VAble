@@ -88,6 +88,11 @@ let __ble_mx_api = {};
 			return this.bt_char !== null;
 		}
 
+		receive(data) {
+			if (this.msg_cb)
+				this.msg_cb(data);
+		}
+
 		is_redonly() {
 			return !this.bt_char.properties.write;
 		}

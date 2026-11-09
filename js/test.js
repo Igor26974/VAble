@@ -173,6 +173,8 @@ let uploadDailyLog = () => {};
 	let timingSampleCount = 0;
 	let timingCalibrated = false;
 	let connectionAlertDismissed = false;
+	let autoReconnectEnabled = false;
+	let autoReconnectTimer = null;
 	let audioContext = null;
 	let connectionAlertSoundTimer = null;
 
@@ -499,6 +501,13 @@ let uploadDailyLog = () => {};
 					toolbar.querySelectorAll('.toolbar-group').forEach((otherGroup) => {
 						if (otherGroup !== menu) otherGroup.open = false;
 					});
+					toolbar.querySelectorAll('.choice-menu[open]').forEach((choiceMenu) => {
+						if (!menu.contains(choiceMenu)) choiceMenu.open = false;
+					});
+				} else if (menu.matches('.choice-menu') && menu.open) {
+					toolbar.querySelectorAll('.choice-menu[open]').forEach((otherMenu) => {
+						if (otherMenu !== menu) otherMenu.open = false;
+					});
 				}
 				resetMenuTimeout();
 			});
@@ -574,6 +583,41 @@ let uploadDailyLog = () => {};
 		requestScreenWakeLock();
 		openDatabase();
 		requestRender(true);
+	}
+
+	function snapCursorPosition(position, bounds, plotWidth) {
+		const displayedPacketCount = suspended && pausedPacketCount !== null ? pausedPacketCount : packetCount;
+		if (displayedPacketCount < 2) return position;
+		const first = Math.max(0, Math.min(displayedPacketCount - 1, Math.floor(viewStart)));
+		const last = Math.max(first, Math.min(displayedPacketCount - 1, Math.ceil(viewEnd)));
+		const axisLast = chartMode === 'scope' ? viewStart + getScopeWindowSamples() - 1 : last;
+		const visibleRange = Math.max(1, axisLast - first);
+		const targetIndex = first + position * visibleRange;
+		const radius = Math.min(4096, Math.max(2, Math.ceil((visibleRange / plotWidth) * 6)));
+		const start = Math.max(0, Math.floor(targetIndex - radius));
+		const end = Math.min(displayedPacketCount - 1, Math.ceil(targetIndex + radius));
+		const channelIndex = channel === 'I' ? 1 : 0;
+		let nearestIndex = -1;
+		let nearestDistance = Infinity;
+
+		for (let index = start; index <= end; index++) {
+			const value = getSample(index, channelIndex);
+			const previous = index > 0 ? getSample(index - 1, channelIndex) : value;
+			const next = index + 1 < displayedPacketCount
+				? getSample(index + 1, channelIndex)
+				: value;
+			const isPeak = value >= previous && value >= next && (value > previous || value > next);
+			const isTrough = value <= previous && value <= next && (value < previous || value < next);
+			if (!isPeak && !isTrough) continue;
+			const distance = Math.abs(index - targetIndex);
+			if (distance < nearestDistance) {
+				nearestIndex = index;
+				nearestDistance = distance;
+			}
+		}
+
+		if (nearestIndex < 0) return position;
+		return Math.max(0, Math.min(1, (nearestIndex - first) / visibleRange));
 	}
 
 	function updateFullscreenButton() {
@@ -724,6 +768,8 @@ let uploadDailyLog = () => {};
 
 	function onConnected(device) {
 		activeTransport = 'ble';
+		autoReconnectEnabled = true;
+		clearAutoReconnectTimer();
 		selectedDevice = device;
 		if (btConnection instanceof NativeBleTransport) btConnection.connected = true;
 		lastPacketArrivalAt = performance.now();
@@ -748,6 +794,7 @@ let uploadDailyLog = () => {};
 		setStatus(canWrite
 			? `Connected: ${device.name || 'ESP32'}`
 			: 'BLE is read-only. For DUAL_CHAR, open the page with ?dual');
+		if (canWrite) sendCommand('start');
 
 		if (document.documentElement.requestFullscreen && !document.fullscreenElement) {
 			document.documentElement.requestFullscreen().then(() => {
@@ -774,6 +821,7 @@ let uploadDailyLog = () => {};
 		if (receivedPacketSinceConnection) {
 			showConnectionAlert('Connection was lost. Reconnect to resume receiving data.');
 		}
+		scheduleAutoReconnect();
 	}
 
 	async function connectUSB(port = null) {
@@ -809,8 +857,10 @@ let uploadDailyLog = () => {};
 			txInput.disabled = false;
 			txForm.querySelector('button').disabled = false;
 			txForm.classList.add('active');
+			autoReconnectEnabled = true;
 			updateConnectionControls();
 			setStatus('USB Serial connected');
+			sendCommand('start');
 			readUSBStream(usbReader);
 		} catch (error) {
 			console.error('USB Serial connection failed:', error);
@@ -844,6 +894,7 @@ let uploadDailyLog = () => {};
 			updateConnectionControls();
 			setStatus(`USB Serial error: ${error.message}`);
 			if (!connectionAlert.hidden) connectionReconnectButton.disabled = false;
+			scheduleAutoReconnect();
 		}
 	}
 
@@ -893,6 +944,7 @@ let uploadDailyLog = () => {};
 			if (receivedPacketSinceConnection) {
 				showConnectionAlert('USB connection was lost. Reconnect to resume receiving data.');
 			}
+			scheduleAutoReconnect();
 		}
 	}
 
@@ -994,9 +1046,34 @@ let uploadDailyLog = () => {};
 		}
 		if (markDismissed) {
 			connectionAlertDismissed = true;
+			autoReconnectEnabled = false;
+			clearAutoReconnectTimer();
 		} else {
 			connectionAlertDismissed = false;
 		}
+	}
+
+	function clearAutoReconnectTimer() {
+		if (autoReconnectTimer === null) return;
+		window.clearTimeout(autoReconnectTimer);
+		autoReconnectTimer = null;
+	}
+
+	function scheduleAutoReconnect() {
+		const transport = getChoiceValue(transportSelect);
+		const canReconnectBle = transport === 'ble' && !window.AndroidApp && selectedDevice && btConnection;
+		const canReconnectUsb = transport === 'usb' && !window.AndroidApp && navigator.serial && selectedSerialPort;
+		if (!autoReconnectEnabled || autoReconnectTimer !== null || (!canReconnectBle && !canReconnectUsb)) return;
+		autoReconnectTimer = window.setTimeout(() => {
+			autoReconnectTimer = null;
+			if (!autoReconnectEnabled || activeTransport !== null ||
+				getChoiceValue(transportSelect) !== transport) return;
+			if (transport === 'ble') {
+				btConnection.connect(selectedDevice, onConnected, onDisconnected);
+			} else {
+				connectUSB(selectedSerialPort);
+			}
+		}, 1500);
 	}
 
 	function checkConnectionHealth() {
@@ -1011,7 +1088,9 @@ let uploadDailyLog = () => {};
 	}
 
 	function reconnectSelectedDevice() {
+		autoReconnectEnabled = true;
 		if (getChoiceValue(transportSelect) === 'ble' && window.AndroidApp) {
+			clearAutoReconnectTimer();
 			connectionReconnectButton.disabled = true;
 			connectionAlertMessage.textContent = 'Reconnecting to ESP32 over Bluetooth…';
 			connectionAlertDismissed = false;
@@ -1024,6 +1103,7 @@ let uploadDailyLog = () => {};
 			return;
 		}
 		if (getChoiceValue(transportSelect) === 'usb' && window.AndroidApp) {
+			clearAutoReconnectTimer();
 			connectionReconnectButton.disabled = true;
 			connectionAlertMessage.textContent = 'Reconnecting to ESP32 over USB…';
 			connectionAlertDismissed = false;
@@ -1035,6 +1115,7 @@ let uploadDailyLog = () => {};
 			return;
 		}
 		if (getChoiceValue(transportSelect) === 'usb') {
+			clearAutoReconnectTimer();
 			connectionReconnectButton.disabled = true;
 			connectionAlertMessage.textContent = 'Reconnecting to USB Serial…';
 			connectionAlertDismissed = false;
@@ -1042,11 +1123,12 @@ let uploadDailyLog = () => {};
 				window.clearInterval(connectionAlertSoundTimer);
 				connectionAlertSoundTimer = null;
 			}
-			connectUSB(selectedSerialPort);
+			connectUSB();
 			return;
 		}
 		if (!selectedDevice || !btConnection) {
 			connectionReconnectButton.disabled = true;
+			clearAutoReconnectTimer();
 			connectionAlertMessage.textContent = 'Reconnect is unavailable. Use Connect to select the device again.';
 			return;
 		}
@@ -1071,11 +1153,16 @@ let uploadDailyLog = () => {};
 
 	function onSendCommand(event) {
 		event.preventDefault();
-		const command = `${txInput.value.trim()}\r`;
+		sendCommand(txInput.value.trim());
+	}
+
+	function sendCommand(commandText) {
+		if (!commandText) return;
+		const command = `${commandText}\r`;
 		if (activeTransport === 'usb' && window.AndroidApp && selectedNativeUsb) {
 			try {
 				window.AndroidApp.writeUsb(bytesToBase64(new TextEncoder().encode(command)));
-				setStatus(`Command sent over USB: ${txInput.value.trim()}`);
+				setStatus(`Command sent over USB: ${commandText}`);
 			} catch (error) {
 				console.error('USB command write failed:', error);
 				setStatus(`USB write error: ${error.message}`);
@@ -1084,7 +1171,7 @@ let uploadDailyLog = () => {};
 		}
 		if (activeTransport === 'usb' && usbWriter) {
 			usbWriter.write(new TextEncoder().encode(command)).then(() => {
-				setStatus(`Command sent over USB: ${txInput.value.trim()}`);
+				setStatus(`Command sent over USB: ${commandText}`);
 			}).catch((error) => {
 				console.error('USB Serial command write failed:', error);
 				setStatus(`USB Serial write error: ${error.message}`);
@@ -1092,12 +1179,12 @@ let uploadDailyLog = () => {};
 			return;
 		}
 		if (!btConnection || !btConnection.is_connected()) {
-			setStatus('Connect to ESP32 first');
+			if (commandText !== 'start') setStatus('Connect to ESP32 first');
 			return;
 		}
 
 		btConnection.write(str2Uint8Array(command), false, false);
-		setStatus(`Command sent over BLE: ${txInput.value.trim()}`);
+		setStatus(`Command sent over BLE: ${commandText}`);
 	}
 
 	function setSuspended(value) {
@@ -1937,7 +2024,8 @@ let uploadDailyLog = () => {};
 		const visibleCount = Math.max(1, viewEnd - viewStart);
 
 		if (mainDrag.type === 'cursorA' || mainDrag.type === 'cursorB') {
-			const value = Math.max(0, Math.min(1, (x - bounds.left) / plotWidth));
+			const pointerPosition = Math.max(0, Math.min(1, (x - bounds.left) / plotWidth));
+			const value = snapCursorPosition(pointerPosition, bounds, plotWidth);
 			if (mainDrag.type === 'cursorA') cursorA = value;
 			else cursorB = value;
 		} else if (mainDrag.type === 'vOffset' || mainDrag.type === 'iOffset') {
@@ -2250,6 +2338,7 @@ let uploadDailyLog = () => {};
 			connectionReconnectButton.disabled = !(selectedDevice || selectedNativeUsb);
 			connectionAlertMessage.textContent = `Reconnect failed: ${message}`;
 		}
+		scheduleAutoReconnect();
 	};
 	window.onNativeUsbConnected = (name) => {
 		activeTransport = 'usb';
@@ -2265,6 +2354,7 @@ let uploadDailyLog = () => {};
 		txForm.classList.add('active');
 		updateConnectionControls();
 		setStatus(`USB connected: ${name || 'ESP32'}`);
+		sendCommand('start');
 	};
 	window.onNativeUsbData = (encoded) => {
 		try {

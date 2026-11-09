@@ -277,7 +277,7 @@ button:disabled {
 
 #readout-voltage,
 #readout-current {
-  width: 10ch;
+  width: 8ch;
   flex: 0 0 auto;
   max-width: 100%;
   text-align: right;

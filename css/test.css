@@ -15,7 +15,7 @@ body {
   height: 100%;
   margin: 0;
   overflow: hidden;
-    overscroll-behavior: none;
+  overscroll-behavior: none;
 }
 
 body {
@@ -285,11 +285,11 @@ button:disabled {
 }
 
 #readout-voltage {
-  color: #35d4ff;
+  color: #80e7ff;
 }
 
 #readout-current {
-  color: #ffbd45;
+  color: #ffd27a;
 }
 
 .readout.selected {
@@ -340,11 +340,11 @@ canvas {
 }
 
 .voltage-key {
-  color: #35d4ff;
+  color: #80e7ff;
 }
 
 .current-key {
-  color: #ffbd45;
+  color: #ffd27a;
 }
 
 #chart-info {

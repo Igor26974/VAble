@@ -119,6 +119,8 @@ let uploadDailyLog = () => {};
 	let storageReady = false;
 	let suspended = false;
 	let packetCount = 0;
+	let pausedPacketCount = null;
+	let followLatestOnResume = false;
 	let receivedPacketCount = 0;
 	let totalBytes = 0;
 	let firstPacketNumber = null;
@@ -152,6 +154,7 @@ let uploadDailyLog = () => {};
 	let lastRender = 0;
 	let lastChartInfoUpdate = 0;
 	let lastNavigatorRender = 0;
+	let lastStatusRender = 0;
 	let mainDrag = null;
 	let navDrag = null;
 	const mainPointers = new Map();
@@ -1089,6 +1092,22 @@ let uploadDailyLog = () => {};
 	}
 
 	function setSuspended(value) {
+		if (suspended === value) return;
+		if (value) {
+			pausedPacketCount = packetCount;
+			followLatestOnResume = chartMode === 'scope' || packetCount === 0 || viewEnd >= packetCount - 2;
+		} else {
+			const viewLength = Math.max(1, viewEnd - viewStart);
+			pausedPacketCount = null;
+			if (followLatestOnResume && packetCount > 0) {
+				if (chartMode === 'scope') {
+					scrollToScopeWindow();
+				} else {
+					viewEnd = packetCount - 1;
+					viewStart = Math.max(0, viewEnd - viewLength);
+				}
+			}
+		}
 		suspended = value;
 		suspendButton.textContent = value ? 'Resume' : 'Pause';
 		suspendButton.setAttribute('aria-pressed', String(value));
@@ -1119,12 +1138,10 @@ let uploadDailyLog = () => {};
 					console.error('Failed to decompress BLE frame:', error);
 					setStatus(`Decompression error: ${error.message}`);
 				});
-			updateStatus();
-			return;
+				return;
 		}
 
 		processFrame(data, isBinary, receivedAt);
-		updateStatus();
 	}
 
 	function processFrame(data, isBinary, receivedAt) {
@@ -1133,6 +1150,7 @@ let uploadDailyLog = () => {};
 			: data.byteLength === legacyPacketBytes ? legacyPacketHeaderBytes : 0;
 		if (headerBytes === 0) {
 			setStatus(`Unsupported packet size (${data.byteLength} bytes); chart not updated`);
+			updateStatus();
 			return;
 		}
 
@@ -1156,7 +1174,7 @@ let uploadDailyLog = () => {};
 		if (lastTimingPacketNumber !== null && lastSourceTimestampUs !== null) {
 			const packetDelta = (packetNumber - lastTimingPacketNumber) >>> 0;
 			const elapsedUs = (sourceTimestampUs - lastSourceTimestampUs) >>> 0;
-			if (packetDelta > 0 && packetDelta <= 1000 && elapsedUs > 0 && elapsedUs < 0x80000000) {
+			if (!suspended && packetDelta > 0 && packetDelta <= 1000 && elapsedUs > 0 && elapsedUs < 0x80000000) {
 				const measuredInterval = elapsedUs / (packetDelta * samplesPerPacket * 1000);
 				if (measuredInterval >= 0.001 && measuredInterval <= 100) {
 					timingIntervals.push(measuredInterval);
@@ -1356,14 +1374,29 @@ let uploadDailyLog = () => {};
 		saveFullBufferToDisk(oldBuffer, oldLength);
 	}
 
-	function updateStatus() {
+	function updateStatus(force = false) {
+		const now = performance.now();
+		if (!force && lastStatusRender > 0 && now - lastStatusRender < 250) return;
+		lastStatusRender = now;
 		const elapsedMs = packetCount * sampleIntervalMs;
 		const elapsed = formatDuration(elapsedMs);
-		const bufferPercent = ((writeIndex / bufferSize) * 100).toFixed(1);
+		const pendingWritePercent = ((writeIndex / bufferSize) * 100).toFixed(1);
+		const chartMemory = formatBytes(estimateChartMemoryBytes());
 		const timing = timingCalibrated && timingDeviationMs / sampleIntervalMs < 0.25
 			? 'measured step'
 			: timingSampleCount > 0 ? 'variable step' : 'estimated step';
-		statusOutput.textContent = `${elapsed} · ${formatBytes(totalBytes)} received · RAM buffer ${bufferPercent}% · ${packetCount.toLocaleString('en-US')} samples / ${receivedPacketCount.toLocaleString('en-US')} packets · ${timing} ${(sampleIntervalMs * 1000).toFixed(1)} us · ${wakeLockStatus}`;
+		statusOutput.textContent = `${elapsed} · ${formatBytes(totalBytes)} received · pending write ${pendingWritePercent}% · chart RAM ~${chartMemory} · ${packetCount.toLocaleString('en-US')} samples / ${receivedPacketCount.toLocaleString('en-US')} packets · ${timing} ${(sampleIntervalMs * 1000).toFixed(1)} us · ${wakeLockStatus}`;
+	}
+
+	function estimateChartMemoryBytes() {
+		const sampleSegments = Math.ceil(packetCount / segmentSize);
+		const summaryCapacity = Math.ceil(
+			Math.ceil(packetCount / samplesPerSummaryBlock) / summarySegmentSize
+		) * summarySegmentSize;
+		const coarseCapacity = Math.ceil(
+			Math.ceil(packetCount / samplesPerCoarseBlock) / summarySegmentSize
+		) * summarySegmentSize;
+		return sampleSegments * segmentSize * 4 + (summaryCapacity + coarseCapacity) * 8;
 	}
 
 	function formatBytes(bytes) {
@@ -1426,7 +1459,7 @@ let uploadDailyLog = () => {};
 		const mainSize = resizeCanvas(mainCanvas, mainContext);
 		drawMainChart(mainSize.width, mainSize.height);
 		const now = performance.now();
-		if (navigatorNeedsRender && (force || now - lastNavigatorRender >= 100)) {
+		if (navigatorNeedsRender && (force || now - lastNavigatorRender >= 250)) {
 			const navSize = resizeCanvas(navCanvas, navContext);
 			drawNavigator(navSize.width, navSize.height);
 			navigatorNeedsRender = false;
@@ -1467,6 +1500,7 @@ let uploadDailyLog = () => {};
 
 	function drawMainChart(width, height) {
 		const context = mainContext;
+		const displayedPacketCount = suspended && pausedPacketCount !== null ? pausedPacketCount : packetCount;
 		context.clearRect(0, 0, width, height);
 		const left = 48;
 		const right = width - 48;
@@ -1476,7 +1510,7 @@ let uploadDailyLog = () => {};
 		const plotHeight = Math.max(1, bottom - top);
 		drawGrid(context, left, top, plotWidth, plotHeight);
 
-		if (packetCount === 0) {
+		if (displayedPacketCount === 0) {
 			context.fillStyle = '#666';
 			context.font = '14px sans-serif';
 			context.textAlign = 'center';
@@ -1484,8 +1518,8 @@ let uploadDailyLog = () => {};
 			return;
 		}
 
-		const first = Math.max(0, Math.min(packetCount - 1, Math.floor(viewStart)));
-		const last = Math.max(first, Math.min(packetCount - 1, Math.ceil(viewEnd)));
+		const first = Math.max(0, Math.min(displayedPacketCount - 1, Math.floor(viewStart)));
+		const last = Math.max(first, Math.min(displayedPacketCount - 1, Math.ceil(viewEnd)));
 		const scopeWindow = chartMode === 'scope' ? getScopeWindowSamples() : last - first + 1;
 		const axisLast = chartMode === 'scope' ? viewStart + scopeWindow - 1 : last;
 		const visible = visibleSeries();
@@ -1547,8 +1581,9 @@ let uploadDailyLog = () => {};
 
 		drawTimeAxis(context, left, right, bottom, first, axisLast);
 		if (showCursors) {
-			drawMeasurementCursors(context, left, top, plotWidth, plotHeight, first, axisLast, scales);
-			drawCursorDelta(context, left, bottom, plotWidth, first, axisLast, height);
+			const cursorValues = drawMeasurementCursors(
+				context, left, top, plotWidth, plotHeight, first, axisLast, scales);
+			drawCursorDelta(context, left, bottom, plotWidth, first, axisLast, height, cursorValues);
 		}
 	}
 
@@ -1648,40 +1683,66 @@ let uploadDailyLog = () => {};
 			{ position: cursorA, label: 'A', color: '#ff6262' },
 			{ position: cursorB, label: 'B', color: '#ffe066' }
 		];
+		const displayedPacketCount = suspended && pausedPacketCount !== null ? pausedPacketCount : packetCount;
+		const cursorValues = [];
 		context.font = '11px Consolas, monospace';
 		context.textAlign = 'left';
-		for (const cursor of cursors) {
+		for (let cursorIndex = 0; cursorIndex < cursors.length; cursorIndex++) {
+			const cursor = cursors[cursorIndex];
 			const x = left + cursor.position * width;
-			const index = Math.max(0, Math.min(packetCount - 1,
+			const index = Math.max(0, Math.min(displayedPacketCount - 1,
 				Math.round(first + cursor.position * (last - first))
 			));
+			const sampledValues = scales.map((scale) => {
+				const rawValue = getSample(index, scale.index);
+				const value = rawValue * (scale.index === 0 ? busLsb : shuntLsb / shuntOhms);
+				const y = valueToY(value, scale, top, height);
+				if (y >= top && y <= top + height) {
+					context.strokeStyle = `${scale.color}99`;
+					context.setLineDash(cursorIndex === 0 ? [5, 3] : [2, 3]);
+					context.beginPath();
+					context.moveTo(left, y);
+					context.lineTo(left + width, y);
+					context.stroke();
+				}
+				return { name: scale.name, value };
+			});
+			cursorValues.push(sampledValues);
 			context.strokeStyle = cursor.color;
 			context.setLineDash([4, 3]);
 			context.beginPath();
 			context.moveTo(x, top);
 			context.lineTo(x, top + height);
 			context.stroke();
-			const values = scales.map((scale) => {
-				const rawValue = getSample(index, scale.index);
-				const value = rawValue * (scale.index === 0 ? busLsb : shuntLsb / shuntOhms);
-				return `${scale.name} ${value.toFixed(3)}`;
-			}).join(' ');
+			const values = sampledValues.map(({ name, value }) => `${name} ${value.toFixed(3)}`).join(' ');
 			context.fillStyle = cursor.color;
-			context.fillText(`${cursor.label}: ${values}`, Math.min(x + 4, left + width - 100), top + 13);
+			context.fillText(
+				`${cursor.label}: ${values}`,
+				Math.min(x + 4, left + width - 100),
+				top + 13 + cursorIndex * 14
+			);
 		}
+		context.setLineDash([]);
+		return cursorValues;
 	}
 
-	function drawCursorDelta(context, left, bottom, width, first, last, canvasHeight) {
+	function drawCursorDelta(context, left, bottom, width, first, last, canvasHeight, cursorValues) {
 		const indexA = first + cursorA * (last - first);
 		const indexB = first + cursorB * (last - first);
 		const deltaMs = (indexB - indexA) * sampleIntervalMs;
-		const text = `Δt A→B: ${formatTimeDelta(deltaMs)}`;
+		const deltas = cursorValues[0].map((valueA, index) => {
+			const delta = cursorValues[1][index].value - valueA.value;
+			return `Δ${valueA.name} ${delta >= 0 ? '+' : ''}${delta.toFixed(3)}`;
+		});
 		const centerX = left + ((cursorA + cursorB) / 2) * width;
-		const y = Math.min(canvasHeight - 5, bottom - 7);
-		context.font = '12px Consolas, monospace';
+		const firstLine = [`Δt A→B: ${formatTimeDelta(deltaMs)}`, deltas[0]].filter(Boolean).join(' · ');
+		const secondLine = deltas[1];
+		const firstY = Math.min(canvasHeight - 19, bottom - (secondLine ? 17 : 5));
+		context.font = '10px Consolas, monospace';
 		context.fillStyle = '#ffe066';
 		context.textAlign = 'center';
-		context.fillText(text, centerX, y);
+		context.fillText(firstLine, centerX, firstY);
+		if (secondLine) context.fillText(secondLine, centerX, Math.min(canvasHeight - 6, bottom - 3));
 	}
 
 	function formatTimeDelta(milliseconds) {
@@ -1696,10 +1757,11 @@ let uploadDailyLog = () => {};
 
 	function drawNavigator(width, height) {
 		const context = navContext;
+		const displayedPacketCount = suspended && pausedPacketCount !== null ? pausedPacketCount : packetCount;
 		context.clearRect(0, 0, width, height);
 		context.fillStyle = '#111';
 		context.fillRect(0, 0, width, height);
-		if (packetCount === 0) {
+		if (displayedPacketCount === 0) {
 			context.fillStyle = '#555';
 			context.font = '11px sans-serif';
 			context.textAlign = 'center';
@@ -1709,12 +1771,12 @@ let uploadDailyLog = () => {};
 
 		const plottedSeries = visibleSeries();
 		const overviewStart = chartMode === 'scope'
-			? Math.max(0, packetCount - getScopeWindowSamples() * 10)
+			? Math.max(0, displayedPacketCount - getScopeWindowSamples() * 10)
 			: 0;
-		const overviewCount = Math.max(1, packetCount - overviewStart);
+		const overviewCount = Math.max(1, displayedPacketCount - overviewStart);
 		const plotWidth = Math.max(1, width - 2);
 		for (const item of plottedSeries) {
-			const fullRange = getMinMax(item.index, overviewStart, packetCount);
+			const fullRange = getMinMax(item.index, overviewStart, displayedPacketCount);
 			let minimum = fullRange.minimum;
 			let maximum = fullRange.maximum;
 			if (minimum === maximum) {
@@ -1729,7 +1791,7 @@ let uploadDailyLog = () => {};
 			context.beginPath();
 			for (let pixel = 0; pixel < plotWidth; pixel++) {
 				const start = overviewStart + Math.floor((overviewCount * pixel) / plotWidth);
-				const end = Math.min(packetCount, Math.max(start + 1,
+				const end = Math.min(displayedPacketCount, Math.max(start + 1,
 					overviewStart + Math.floor((overviewCount * (pixel + 1)) / plotWidth)));
 				const binRange = getMinMax(item.index, start, end);
 				const yMin = middle - ((binRange.maximum - minimum) / (maximum - minimum)) * amplitude;
@@ -1742,7 +1804,7 @@ let uploadDailyLog = () => {};
 		context.globalAlpha = 1;
 
 		const startX = ((viewStart - overviewStart) / overviewCount) * width;
-		const endX = ((viewEnd + 1 - overviewStart) / overviewCount) * width;
+		const endX = ((Math.min(viewEnd, displayedPacketCount - 1) + 1 - overviewStart) / overviewCount) * width;
 		context.fillStyle = 'rgba(120, 160, 220, 0.22)';
 		context.fillRect(startX, 0, Math.max(3, endX - startX), height);
 		context.strokeStyle = '#a8c6ff';
@@ -2001,7 +2063,7 @@ let uploadDailyLog = () => {};
 		iZeroOffset = 0.5;
 		vYZoom = 1;
 		iYZoom = 1;
-		updateStatus();
+		updateStatus(true);
 		saveSettings();
 		requestRender(true);
 	}

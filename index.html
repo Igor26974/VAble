@@ -113,14 +113,14 @@
         <details class="toolbar-group">
           <summary>Recording</summary>
           <div class="toolbar-group-content">
-            <button type="button" id="download-btn">Download .BIN</button>
+            <button type="button" id="download-btn">Save .BIN</button>
             <button type="button" id="clear-btn">Clear</button>
             <button type="button" id="upload-btn">Open .BIN</button>
           </div>
         </details>
-        <form id="tx-form" class="tx-form">
-          <input id="tx-msg" type="text" aria-label="Command for ESP32" value="start" autocomplete="off" disabled>
-          <button type="submit" disabled>Send</button>
+        <form id="tx-form" class="tx-form active">
+          <input id="tx-msg" type="text" aria-label="Command for ESP32" value="start" autocomplete="off">
+          <button type="submit">Send</button>
         </form>
       </header>
       <section class="status-bar" aria-live="polite">
@@ -134,15 +134,15 @@
           <span class="current-key">I, A</span>
           <span id="chart-info"></span>
         </div>
-        <div id="readout" class="readout" aria-label="Latest averaged values">
-          <div id="readout-voltage">---.--- V</div>
-          <div id="readout-current">---.--- A</div>
-          <span class="readout-resize" aria-hidden="true"></span>
-        </div>
       </section>
       <section class="navigator-panel">
         <canvas id="navChart" aria-label="Recording overview and range selector"></canvas>
       </section>
+      <div id="readout" class="readout" aria-label="Latest averaged values">
+        <div id="readout-voltage">---.--- V</div>
+        <div id="readout-current">---.--- A</div>
+        <span class="readout-resize" aria-hidden="true"></span>
+      </div>
     </main>
     <div id="connection-alert" class="connection-alert" role="alertdialog" aria-modal="true" aria-labelledby="connection-alert-title" hidden>
       <div class="connection-alert-card">
@@ -154,6 +154,11 @@
         </div>
       </div>
     </div>
+    <section id="demo-tour" class="demo-tour" aria-live="polite" hidden>
+      <p id="demo-tour-title"></p>
+      <p id="demo-tour-text"></p>
+      <button type="button" id="demo-exit">Exit demo</button>
+    </section>
     <script src="js/ble_mx_api.js"></script>
     <script src="js/test.js"></script>
   </body>

@@ -56,6 +56,10 @@ let uploadDailyLog = () => {};
 	const readoutCurrent = document.getElementById('readout-current');
 	const readoutVoltageToggle = document.getElementById('readout-v-toggle');
 	const readoutCurrentToggle = document.getElementById('readout-i-toggle');
+	const demoTour = document.getElementById('demo-tour');
+	const demoTourTitle = document.getElementById('demo-tour-title');
+	const demoTourText = document.getElementById('demo-tour-text');
+	const demoExitButton = document.getElementById('demo-exit');
 	const connectionAlert = document.getElementById('connection-alert');
 	const connectionAlertMessage = document.getElementById('connection-alert-message');
 	const connectionCancelButton = document.getElementById('connection-cancel');
@@ -175,11 +179,23 @@ let uploadDailyLog = () => {};
 	let connectionAlertDismissed = false;
 	let autoReconnectEnabled = false;
 	let autoReconnectTimer = null;
+	let demoMode = false;
+	let demoSnapshot = null;
+	let demoLanguage = 'en';
+	let demoSampleTimer = null;
+	let demoTourTimer = null;
+	let demoAnimationTimer = null;
+	let demoStepIndex = -1;
+	let demoGeneratedSamples = 0;
+	let highlightedDemoElement = null;
+	let savingRecording = false;
+	const packetsWaitingForSave = [];
 	let audioContext = null;
 	let connectionAlertSoundTimer = null;
 
 	function loadSettings() {
 		const defaults = {
+			transport: 'ble',
 			channel: 'V',
 			chartMode: 'history',
 			timePerDivisionSeconds: 0.001,
@@ -201,6 +217,8 @@ let uploadDailyLog = () => {};
 		try {
 			const stored = JSON.parse(localStorage.getItem('bleRecorderSettings') || '{}');
 			return {
+				transport: getChoiceValues(document.getElementById('transport-select'))
+					.includes(stored.transport) ? stored.transport : defaults.transport,
 				channel: ['V', 'I', 'VI'].includes(stored.channel) ? stored.channel : defaults.channel,
 				chartMode: ['history', 'scope'].includes(stored.chartMode) ? stored.chartMode : defaults.chartMode,
 				timePerDivisionSeconds: getChoiceValues(document.getElementById('time-div'))
@@ -254,8 +272,10 @@ let uploadDailyLog = () => {};
 	}
 
 	function saveSettings() {
+		if (demoMode) return;
 		try {
 			localStorage.setItem('bleRecorderSettings', JSON.stringify({
+				transport: getChoiceValue(transportSelect),
 				channel,
 				chartMode,
 				timePerDivisionSeconds,
@@ -339,7 +359,7 @@ let uploadDailyLog = () => {};
 	}
 
 	function keepReadoutInBounds() {
-		const panel = readout.parentElement.getBoundingClientRect();
+		const panel = { width: window.innerWidth, height: window.innerHeight };
 		const bounds = readout.getBoundingClientRect();
 		if (panel.width === 0 || panel.height === 0) return;
 		const maxX = Math.max(0, panel.width - bounds.width);
@@ -408,7 +428,7 @@ let uploadDailyLog = () => {};
 
 	function onReadoutPointerMove(event) {
 		if (!overlayDrag) return;
-		const panel = readout.parentElement.getBoundingClientRect();
+		const panel = { width: window.innerWidth, height: window.innerHeight };
 		if (overlayDrag.type === 'resize') {
 			const delta = Math.max(event.clientX - overlayDrag.x, event.clientY - overlayDrag.y);
 			readoutFontSize = Math.max(10, Math.min(64, overlayDrag.fontSize + delta * 0.12));
@@ -446,6 +466,7 @@ let uploadDailyLog = () => {};
 			voltageDivSelect,
 			currentDivSelect
 		].forEach(bindChoiceMenu);
+		setChoiceValue(transportSelect, settings.transport);
 		setChoiceValue(channelSelect, channel);
 		setChoiceValue(chartModeSelect, chartMode);
 		setChoiceValue(timeDivSelect, timePerDivisionSeconds);
@@ -461,7 +482,11 @@ let uploadDailyLog = () => {};
 		readout.addEventListener('pointerup', onReadoutPointerUp);
 		readout.addEventListener('pointercancel', onReadoutPointerUp);
 		connectButton.addEventListener('click', onConnectClick);
-		transportSelect.addEventListener('change', updateConnectionControls);
+		transportSelect.addEventListener('change', () => {
+			saveSettings();
+			updateConnectionControls();
+		});
+		demoExitButton.addEventListener('click', stopDemo);
 		fullscreenButton.addEventListener('click', toggleFullscreen);
 		suspendButton.addEventListener('click', () => setSuspended(!suspended));
 		txForm.addEventListener('submit', onSendCommand);
@@ -593,7 +618,7 @@ let uploadDailyLog = () => {};
 		const axisLast = chartMode === 'scope' ? viewStart + getScopeWindowSamples() - 1 : last;
 		const visibleRange = Math.max(1, axisLast - first);
 		const targetIndex = first + position * visibleRange;
-		const radius = Math.min(4096, Math.max(2, Math.ceil((visibleRange / plotWidth) * 6)));
+		const radius = Math.min(65536, Math.max(2, Math.ceil((visibleRange / plotWidth) * 18)));
 		const start = Math.max(0, Math.floor(targetIndex - radius));
 		const end = Math.min(displayedPacketCount - 1, Math.ceil(targetIndex + radius));
 		const channelIndex = channel === 'I' ? 1 : 0;
@@ -787,9 +812,9 @@ let uploadDailyLog = () => {};
 		connectButton.textContent = 'Connected';
 		suspendButton.disabled = false;
 		const canWrite = !btConnection.is_redonly();
-		txForm.classList.toggle('active', canWrite);
-		txInput.disabled = !canWrite;
-		txForm.querySelector('button').disabled = !canWrite;
+		txForm.classList.add('active');
+		txInput.disabled = false;
+		txForm.querySelector('button').disabled = false;
 		updateConnectionControls();
 		setStatus(canWrite
 			? `Connected: ${device.name || 'ESP32'}`
@@ -814,8 +839,6 @@ let uploadDailyLog = () => {};
 		if (btConnection instanceof NativeBleTransport) btConnection.connected = false;
 		connectButton.textContent = 'Connect';
 		suspendButton.disabled = true;
-		txInput.disabled = true;
-		txForm.querySelector('button').disabled = true;
 		updateConnectionControls();
 		setStatus(`Disconnected: ${device.name || 'ESP32'}`);
 		if (receivedPacketSinceConnection) {
@@ -937,8 +960,6 @@ let uploadDailyLog = () => {};
 			}
 			connectButton.textContent = 'Connect';
 			suspendButton.disabled = true;
-			txInput.disabled = true;
-			txForm.querySelector('button').disabled = true;
 			updateConnectionControls();
 			setStatus(readError ? `USB Serial disconnected: ${readError.message}` : 'USB Serial disconnected');
 			if (receivedPacketSinceConnection) {
@@ -1028,7 +1049,7 @@ let uploadDailyLog = () => {};
 	}
 
 	function showConnectionAlert(message) {
-		if (connectionAlertDismissed || !connectionAlert.hidden) return;
+		if (demoMode || connectionAlertDismissed || !connectionAlert.hidden) return;
 		connectionAlertMessage.textContent = message;
 		connectionAlert.hidden = false;
 		connectionReconnectButton.disabled = !(selectedDevice || selectedSerialPort || selectedNativeUsb);
@@ -1077,6 +1098,7 @@ let uploadDailyLog = () => {};
 	}
 
 	function checkConnectionHealth() {
+		if (demoMode) return;
 		const isConnected = activeTransport === 'ble'
 			? Boolean(btConnection && btConnection.is_connected())
 			: activeTransport === 'usb' && Boolean(usbReader);
@@ -1158,6 +1180,17 @@ let uploadDailyLog = () => {};
 
 	function sendCommand(commandText) {
 		if (!commandText) return;
+		const normalizedCommand = commandText.trim().toLowerCase();
+		const demoLanguages = { demo: 'en', demoru: 'ru', demopl: 'pl', demoen: 'en' };
+		if (demoLanguages[normalizedCommand]) {
+			startDemo(demoLanguages[normalizedCommand]);
+			return;
+		}
+		if (demoMode) {
+			if (normalizedCommand === 'stopdemo' || normalizedCommand === 'enddemo') stopDemo();
+			else setStatus('Commands are disabled during the demo');
+			return;
+		}
 		const command = `${commandText}\r`;
 		if (activeTransport === 'usb' && window.AndroidApp && selectedNativeUsb) {
 			try {
@@ -1178,13 +1211,554 @@ let uploadDailyLog = () => {};
 			});
 			return;
 		}
-		if (!btConnection || !btConnection.is_connected()) {
+		if (!btConnection || !btConnection.is_connected() || btConnection.is_redonly()) {
 			if (commandText !== 'start') setStatus('Connect to ESP32 first');
 			return;
 		}
 
 		btConnection.write(str2Uint8Array(command), false, false);
 		setStatus(`Command sent over BLE: ${commandText}`);
+	}
+
+	const demoTourSteps = [
+		{
+			selector: '#transport-select',
+			group: 'Connection',
+			menu: 'transport-select',
+			value: 'usb',
+			text: {
+				en: 'Connection: choose Bluetooth or USB Serial here. Watch the synthetic trace begin scrolling; the demo does not connect to or send commands to the ESP32.',
+				pl: 'Połączenie: tutaj wybiera się Bluetooth lub USB Serial. Obserwuj przesuwający się wykres syntetyczny; demo nie łączy się z ESP32 ani nie wysyła poleceń.',
+				ru: 'Подключение: здесь выбирают Bluetooth или USB Serial. Наблюдайте за движущимся графиком искусственных данных; деморежим не подключается к ESP32 и не отправляет ему команды.'
+			}
+		},
+		{
+			selector: '#channel-select',
+			group: 'View',
+			menu: 'channel-select',
+			value: 'I',
+			timeDiv: 0.2,
+			text: {
+				en: 'The live trace is scrolling as new measurements arrive. Here the sweep changes to 200 ms/div; voltage and current can also be shown together.',
+				pl: 'Wykres przesuwa się na żywo wraz z napływem pomiarów. Tutaj podstawa czasu zmienia się na 200 ms/działkę; można też wyświetlać napięcie i prąd razem.',
+				ru: 'График плавно движется по мере поступления измерений. Здесь развёртка меняется на 200 мс/дел.; напряжение и ток можно показывать вместе.'
+			}
+		},
+		{
+			selector: '#channel-select',
+			group: 'View',
+			menu: 'channel-select',
+			value: 'VI',
+			timeDiv: 0.5,
+			text: {
+				en: 'Both live traces are visible now. The sweep changes to 500 ms/div so you can see how the display responds to different time scales.',
+				pl: 'Teraz widać oba wykresy na żywo. Podstawa czasu zmienia się na 500 ms/działkę, pokazując działanie różnych skal czasu.',
+				ru: 'Теперь видны оба графика. Развёртка меняется на 500 мс/дел., чтобы показать работу с разными масштабами времени.'
+			}
+		},
+		{
+			selector: '#chart-mode',
+			group: 'View',
+			menu: 'chart-mode',
+			value: 'history',
+			text: {
+				en: 'Switch to History to keep and review the complete recording. Oscilloscope mode instead scrolls through the latest selected time window.',
+				pl: 'Przełącz na History, aby zachować i przeglądać cały pomiar. Tryb Oscilloscope przewija najnowszy wybrany przedział czasu.',
+				ru: 'Переключитесь в History, чтобы сохранить и просматривать всю запись. В режиме осциллографа прокручивается выбранное последнее окно времени.'
+			}
+		},
+		{
+			selector: '#time-div',
+			group: 'Scales',
+			menu: 'time-div',
+			value: '0.1',
+			text: {
+				en: 'Time/div changes the horizontal time scale. In Oscilloscope mode it sets the sweep speed.',
+				pl: 'Time/div zmienia poziomą skalę czasu. W trybie Oscilloscope określa szybkość przebiegu.',
+				ru: 'Time/div меняет горизонтальный масштаб времени. В режиме осциллографа это скорость развёртки.'
+			}
+		},
+		{
+			selector: '#voltage-div',
+			group: 'Scales',
+			menu: 'voltage-div',
+			value: '0.2',
+			text: {
+				en: 'V/div changes the voltage scale. The displayed trace keeps the voltage channel color.',
+				pl: 'V/div zmienia skalę napięcia. Wykres zachowuje kolor kanału napięcia.',
+				ru: 'V/div меняет масштаб напряжения. Цвет графика соответствует каналу напряжения.'
+			}
+		},
+		{
+			selector: '#current-div',
+			group: 'Scales',
+			menu: 'current-div',
+			value: '0.05',
+			text: {
+				en: 'A/div changes the current scale independently of the voltage scale.',
+				pl: 'A/div zmienia skalę prądu niezależnie od skali napięcia.',
+				ru: 'A/div меняет масштаб тока независимо от масштаба напряжения.'
+			}
+		},
+		{
+			selector: '#cursor-btn',
+			group: 'View',
+			value: 'cursors',
+			text: {
+				en: 'Enable cursors and drag A or B. They snap to nearby peaks and troughs to help measure narrow pulses.',
+				pl: 'Włącz kursory i przeciągaj A lub B. Przyciągają się do pobliskich szczytów i minimów, ułatwiając pomiar krótkich impulsów.',
+				ru: 'Включите курсоры и перетаскивайте A или B. Они притягиваются к близким пикам и провалам.'
+			}
+		},
+		{
+			selector: '#mainChart',
+			value: 'navigate',
+			text: {
+				en: 'Zoom with the mouse wheel or a two-finger pinch. Drag the chart to pan through the recording.',
+				pl: 'Powiększaj kółkiem myszy lub gestem dwóch palców. Przeciągnij wykres, aby przesuwać zapis.',
+				ru: 'Масштабируйте колёсиком мыши или жестом двух пальцев. Перетаскивайте график для прокрутки записи.'
+			}
+		},
+		{
+			selector: '#bt-btn2',
+			value: 'pause',
+			text: {
+				en: 'Pause freezes the display while acquisition can continue. Resume returns to live data.',
+				pl: 'Pause zatrzymuje wyświetlanie, podczas gdy pomiar może trwać. Resume wraca do bieżących danych.',
+				ru: 'Pause останавливает отображение, пока запись может продолжаться. Resume возвращает к текущим данным.'
+			}
+		},
+		{
+			selector: '#readout',
+			group: 'View',
+			value: 'readouts',
+			text: {
+				en: 'These live voltage and current readouts can be resized and dragged anywhere on the screen, including over the toolbar and history navigator.',
+				pl: 'Bieżące wartości napięcia i prądu można powiększać i przeciągać w dowolne miejsce ekranu, także nad pasek narzędzi i nawigator historii.',
+				ru: 'Текущие показания напряжения и тока можно масштабировать и перемещать в любую область экрана, включая меню и нижний график истории.'
+			}
+		},
+		{
+			selector: '#download-btn',
+			group: 'Recording',
+			value: 'recording',
+			text: {
+				en: 'A .BIN file can be very large and hold 24 hours or more of measurements for later loading and review. Recording can continue on Android with the screen off if background operation is permitted; disable battery optimization if needed.',
+				pl: 'Plik .BIN może być bardzo duży i przechowywać co najmniej 24 godziny pomiarów do późniejszego wczytania i przeglądania. Android może nagrywać przy wyłączonym ekranie, jeśli zezwala na pracę w tle; w razie potrzeby wyłącz optymalizację baterii.',
+				ru: 'Файл .BIN может быть очень большим и хранить данные за 24 часа и более — их можно позже загрузить и просмотреть. Android может продолжать приём и сохранение при выключенном экране, если разрешена работа в фоне; при необходимости отключите оптимизацию батареи.'
+			}
+		},
+		{
+			selector: '#fullscreen-btn',
+			group: 'Connection',
+			value: 'fullscreen',
+			text: {
+				en: 'Full screen hides browser controls when supported. Exit the demo with this button.',
+				pl: 'Pełny ekran ukrywa elementy przeglądarki, jeśli jest obsługiwany. Zakończ demo tym przyciskiem.',
+				ru: 'Полный экран скрывает элементы браузера, если поддерживается. Завершите демо кнопкой ниже.'
+			}
+		},
+		{
+			selector: '#demo-exit',
+			value: 'complete',
+			text: {
+				en: 'Tour complete. The chart uses generated demo data only. Press Exit demo to restore the previous session.',
+				pl: 'Koniec prezentacji. Wykres pokazuje wyłącznie wygenerowane dane. Naciśnij Exit demo, aby przywrócić poprzednią sesję.',
+				ru: 'Демонстрация завершена. На графике только искусственные данные. Нажмите Exit demo для возврата к предыдущей сессии.'
+			}
+		}
+	];
+
+	function captureDemoSnapshot() {
+		return {
+			series: Object.assign({}, series),
+			recentReadoutSamples: recentReadoutSamples.slice(),
+			values: {
+				packetCount, receivedPacketCount, totalBytes, firstPacketNumber,
+				lastTimingPacketNumber, lastSourceTimestampUs, timingDeviationMs,
+				timingSampleCount, timingCalibrated, sampleIntervalMs, recordStartTime,
+				viewStartTime, viewStart, viewEnd, lastPacketArrivalAt, writeIndex, activeBuffer, standbyBuffer,
+				channel, chartMode, timePerDivisionSeconds, voltagePerDivision, currentPerDivision,
+				vZeroOffset, iZeroOffset, vYZoom, iYZoom, showCursors, cursorA, cursorB,
+				overlayShowVoltage, overlayShowCurrent, readoutPosition, readoutFontSize,
+				suspended, pausedPacketCount, followLatestOnResume,
+				latestAverageVoltage, latestAverageCurrent
+			},
+			transport: getChoiceValue(transportSelect),
+			readoutVChecked: readoutVoltageToggle.checked,
+			readoutIChecked: readoutCurrentToggle.checked,
+			recordingButtonStates: ['download-btn', 'clear-btn', 'upload-btn']
+				.map((id) => document.getElementById(id).disabled)
+		};
+	}
+
+	function startDemo(language) {
+		stopDemoAnimation();
+		if (!demoMode) {
+			demoSnapshot = captureDemoSnapshot();
+			for (const key of Object.keys(series)) series[key] = [];
+			packetCount = 0;
+			receivedPacketCount = 0;
+			totalBytes = 0;
+			firstPacketNumber = null;
+			lastTimingPacketNumber = null;
+			lastSourceTimestampUs = null;
+			timingDeviationMs = 0;
+			timingSampleCount = 0;
+			timingCalibrated = false;
+			sampleIntervalMs = 1;
+			recordStartTime = Date.now();
+			viewStartTime = recordStartTime;
+			viewStart = 0;
+			viewEnd = 0;
+			lastPacketArrivalAt = null;
+			writeIndex = 0;
+			recentReadoutSamples.length = 0;
+			latestAverageVoltage = null;
+			latestAverageCurrent = null;
+			updateReadout();
+			channel = 'V';
+			chartMode = 'scope';
+			timePerDivisionSeconds = 0.1;
+			voltagePerDivision = 1;
+			currentPerDivision = 0.5;
+			showCursors = false;
+			cursorA = 0.3;
+			cursorB = 0.7;
+			overlayShowVoltage = false;
+			overlayShowCurrent = false;
+			readoutPosition = { x: 0.25, y: 0.3 };
+			readoutFontSize = 18;
+			vZeroOffset = 0.5;
+			iZeroOffset = 0.5;
+			vYZoom = 1;
+			iYZoom = 1;
+			suspended = false;
+			pausedPacketCount = null;
+			followLatestOnResume = false;
+			setChoiceValue(channelSelect, channel);
+			setChoiceValue(chartModeSelect, chartMode);
+			setChoiceValue(timeDivSelect, timePerDivisionSeconds);
+			setChoiceValue(voltageDivSelect, voltagePerDivision);
+			setChoiceValue(currentDivSelect, currentPerDivision);
+			readoutVoltageToggle.checked = false;
+			readoutCurrentToggle.checked = false;
+			const cursorButton = document.getElementById('cursor-btn');
+			cursorButton.textContent = 'Cursors: Off';
+			cursorButton.setAttribute('aria-pressed', 'false');
+			suspendButton.textContent = 'Pause';
+			suspendButton.setAttribute('aria-pressed', 'false');
+			applyReadoutSettings();
+			demoMode = true;
+			demoGeneratedSamples = 0;
+			demoTour.hidden = false;
+			document.getElementById('download-btn').disabled = true;
+			document.getElementById('clear-btn').disabled = true;
+			document.getElementById('upload-btn').disabled = true;
+			connectButton.disabled = true;
+			suspendButton.disabled = false;
+			demoExitButton.textContent = language === 'ru' ? 'Выход из демо'
+				: language === 'pl' ? 'Zakończ demo' : 'Exit demo';
+			dismissConnectionAlert(false);
+			demoSampleTimer = window.setInterval(generateDemoSamples, 20);
+			demoTourTimer = window.setInterval(advanceDemoTour, 4500);
+			requestRender(true);
+		}
+		demoLanguage = language;
+		demoStepIndex = -1;
+		advanceDemoTour();
+	}
+
+	function generateDemoSamples() {
+		if (!demoMode || demoGeneratedSamples >= 120000) {
+			if (demoSampleTimer !== null) {
+				window.clearInterval(demoSampleTimer);
+				demoSampleTimer = null;
+			}
+			return;
+		}
+		let voltageSum = 0;
+		let currentSum = 0;
+		let count = 0;
+		for (let offset = 0; offset < 20 && demoGeneratedSamples < 120000; offset++) {
+			const index = demoGeneratedSamples++;
+			const phase = index % 5000;
+			let voltage = 12.2 + 0.35 * Math.sin(index / 650) + 0.06 * Math.sin(index / 13);
+			if (phase === 1150) voltage += 1.6;
+			if (phase === 1180) voltage -= 1.3;
+			const current = 0.7 + 0.45 * Math.sin(index / 31) + 0.08 * Math.sin(index / 7);
+			const rawVoltage = Math.round(voltage / busLsb);
+			const rawCurrent = Math.round(current / (shuntLsb / shuntOhms));
+			appendSample(rawVoltage, rawCurrent);
+			voltageSum += rawVoltage * busLsb;
+			currentSum += rawCurrent * shuntLsb / shuntOhms;
+			count++;
+		}
+		if (count === 0) return;
+		if (chartMode === 'scope') {
+			scrollToScopeWindow();
+		} else if (!suspended) {
+			viewEnd = packetCount - 1;
+		}
+		receivedPacketCount++;
+		totalBytes += count * 4;
+		latestAverageVoltage = voltageSum / count;
+		latestAverageCurrent = currentSum / count;
+		recentReadoutSamples.push({
+			time: performance.now(),
+			voltage: latestAverageVoltage,
+			current: latestAverageCurrent,
+			count
+		});
+		updateStatus();
+		requestRender(false);
+	}
+
+	function advanceDemoTour() {
+		if (!demoMode) return;
+		stopDemoAnimation();
+		demoStepIndex++;
+		if (demoStepIndex >= demoTourSteps.length) {
+			if (demoTourTimer !== null) window.clearInterval(demoTourTimer);
+			demoTourTimer = null;
+			demoStepIndex = demoTourSteps.length - 1;
+		}
+		const step = demoTourSteps[demoStepIndex];
+		closeDemoMenus();
+		if (highlightedDemoElement) highlightedDemoElement.classList.remove('demo-highlight');
+		if (step.group) {
+			const group = Array.from(document.querySelectorAll('.toolbar-group'))
+				.find((item) => item.firstElementChild.textContent.trim() === step.group);
+			if (group) group.open = true;
+			if (step.menu) document.getElementById(step.menu).open = true;
+		}
+		const element = document.querySelector(step.selector);
+		if (element) {
+			element.classList.add('demo-highlight');
+			highlightedDemoElement = element;
+		}
+
+		switch (step.value) {
+			case 'usb':
+				setChoiceValue(transportSelect, 'usb');
+				break;
+			case 'I':
+			case 'VI':
+				channel = step.value;
+				setChoiceValue(channelSelect, channel);
+				break;
+			case 'history':
+				chartMode = 'history';
+				viewStart = 0;
+				viewEnd = packetCount - 1;
+				setChoiceValue(chartModeSelect, chartMode);
+				break;
+			case 'scope':
+				chartMode = 'scope';
+				setChoiceValue(chartModeSelect, chartMode);
+				scrollToScopeWindow();
+				break;
+			case '0.1':
+				timePerDivisionSeconds = 0.1;
+				setChoiceValue(timeDivSelect, timePerDivisionSeconds);
+				break;
+			case '0.2':
+				voltagePerDivision = 0.2;
+				setChoiceValue(voltageDivSelect, voltagePerDivision);
+				break;
+			case '0.05':
+				currentPerDivision = 0.05;
+				setChoiceValue(currentDivSelect, currentPerDivision);
+				break;
+			case 'cursors':
+				showCursors = true;
+				cursorA = 0.28;
+				cursorB = 0.72;
+				document.getElementById('cursor-btn').textContent = 'Cursors: On';
+				document.getElementById('cursor-btn').setAttribute('aria-pressed', 'true');
+				animateDemoCursors();
+				break;
+			case 'navigate': {
+				chartMode = 'history';
+				setChoiceValue(chartModeSelect, chartMode);
+				animateDemoNavigation();
+				break;
+			}
+			case 'pause':
+				setSuspended(true);
+				break;
+			case 'readouts':
+				overlayShowVoltage = true;
+				overlayShowCurrent = true;
+				readoutVoltageToggle.checked = true;
+				readoutCurrentToggle.checked = true;
+				readoutPosition = { x: 0.25, y: 0.3 };
+				applyReadoutSettings();
+				animateDemoReadout();
+				break;
+			default:
+				if (step.menu) setChoiceValue(document.getElementById(step.menu), step.value);
+				break;
+		}
+
+		if (demoStepIndex === 10 && suspended) setSuspended(false);
+		const title = {
+			en: `DEMO MODE · Step ${demoStepIndex + 1}/${demoTourSteps.length}`,
+			pl: `TRYB DEMO · Krok ${demoStepIndex + 1}/${demoTourSteps.length}`,
+			ru: `ДЕМО-РЕЖИМ · Шаг ${demoStepIndex + 1}/${demoTourSteps.length}`
+		};
+		const intro = {
+			en: 'Synthetic data only — no ESP32 commands are sent.',
+			pl: 'Wyłącznie dane syntetyczne — polecenia nie są wysyłane do ESP32.',
+			ru: 'Только искусственные данные — команды ESP32 не отправляются.'
+		};
+		demoTourTitle.textContent = title[demoLanguage];
+		demoTourText.textContent = `${intro[demoLanguage]} ${step.text[demoLanguage]}`;
+		requestRender(true);
+		if (step.timeDiv !== undefined) {
+			timePerDivisionSeconds = step.timeDiv;
+			setChoiceValue(timeDivSelect, timePerDivisionSeconds);
+		}
+	}
+
+	function animateDemoCursors() {
+		const bounds = plotBounds();
+		const width = Math.max(1, bounds.right - bounds.left);
+		const targetA = snapCursorPosition(0.42, bounds, width);
+		const targetB = snapCursorPosition(0.58, bounds, width);
+		const startedAt = performance.now();
+		demoAnimationTimer = window.setInterval(() => {
+			if (!demoMode || demoStepIndex !== 7) {
+				stopDemoAnimation();
+				return;
+			}
+			const progress = Math.min(1, (performance.now() - startedAt) / 2600);
+			const eased = 1 - (1 - progress) ** 3;
+			cursorA = 0.28 + (targetA - 0.28) * eased;
+			cursorB = 0.72 + (targetB - 0.72) * eased;
+			requestRender(false);
+			if (progress >= 1) stopDemoAnimation();
+		}, 50);
+	}
+
+	function animateDemoNavigation() {
+		const fullRange = Math.max(2, packetCount - 1);
+		const startedAt = performance.now();
+		demoAnimationTimer = window.setInterval(() => {
+			if (!demoMode || demoStepIndex !== 8) {
+				stopDemoAnimation();
+				return;
+			}
+			const elapsed = performance.now() - startedAt;
+			const zoomProgress = Math.min(1, elapsed / 1400);
+			const panProgress = Math.max(0, Math.min(1, (elapsed - 1400) / 1800));
+			const range = fullRange * (1 - 0.8 * (1 - (1 - zoomProgress) ** 3));
+			const center = fullRange * (0.5 + 0.25 * panProgress);
+			setViewRange(center - range / 2, center + range / 2);
+			requestRender(false);
+			if (elapsed >= 3300) stopDemoAnimation();
+		}, 70);
+	}
+
+	function animateDemoReadout() {
+		const viewportWidth = Math.max(1, window.innerWidth);
+		const viewportHeight = Math.max(1, window.innerHeight);
+		const bounds = readout.getBoundingClientRect();
+		const maxX = Math.max(0, viewportWidth - bounds.width - 8);
+		const maxY = Math.max(0, viewportHeight - bounds.height - 8);
+		const targets = [
+			{ x: maxX, y: 8 },
+			{ x: maxX, y: maxY },
+			{ x: 8, y: maxY }
+		];
+		const startX = readoutPosition.x * viewportWidth;
+		const startY = readoutPosition.y * viewportHeight;
+		const startedAt = performance.now();
+		const segmentDuration = 850;
+		demoAnimationTimer = window.setInterval(() => {
+			if (!demoMode || demoStepIndex !== 10) {
+				stopDemoAnimation();
+				return;
+			}
+			const elapsed = performance.now() - startedAt;
+			const segment = Math.min(targets.length - 1, Math.floor(elapsed / segmentDuration));
+			const segmentStart = segment === 0
+				? { x: startX, y: startY }
+				: targets[segment - 1];
+			const progress = Math.min(1, (elapsed - segment * segmentDuration) / segmentDuration);
+			const eased = 1 - (1 - progress) ** 3;
+			readoutPosition = {
+				x: (segmentStart.x + (targets[segment].x - segmentStart.x) * eased) / viewportWidth,
+				y: (segmentStart.y + (targets[segment].y - segmentStart.y) * eased) / viewportHeight
+			};
+			keepReadoutInBounds();
+			if (elapsed >= segmentDuration * targets.length) stopDemoAnimation();
+		}, 40);
+	}
+
+	function stopDemoAnimation() {
+		if (demoAnimationTimer === null) return;
+		window.clearInterval(demoAnimationTimer);
+		demoAnimationTimer = null;
+	}
+
+	function closeDemoMenus() {
+		document.querySelectorAll('.toolbar details[open]').forEach((menu) => {
+			menu.open = false;
+		});
+	}
+
+	function stopDemo() {
+		if (!demoMode || !demoSnapshot) return;
+		demoMode = false;
+		if (demoSampleTimer !== null) window.clearInterval(demoSampleTimer);
+		if (demoTourTimer !== null) window.clearInterval(demoTourTimer);
+		stopDemoAnimation();
+		demoSampleTimer = null;
+		demoTourTimer = null;
+		demoTour.hidden = true;
+		closeDemoMenus();
+		if (highlightedDemoElement) highlightedDemoElement.classList.remove('demo-highlight');
+		highlightedDemoElement = null;
+		for (const key of Object.keys(series)) series[key] = demoSnapshot.series[key];
+		const snapshot = demoSnapshot;
+		demoSnapshot = null;
+		({
+			packetCount, receivedPacketCount, totalBytes, firstPacketNumber,
+			lastTimingPacketNumber, lastSourceTimestampUs, timingDeviationMs,
+			timingSampleCount, timingCalibrated, sampleIntervalMs, recordStartTime,
+			viewStartTime, viewStart, viewEnd, lastPacketArrivalAt, writeIndex, activeBuffer, standbyBuffer,
+			channel, chartMode, timePerDivisionSeconds, voltagePerDivision, currentPerDivision,
+			vZeroOffset, iZeroOffset, vYZoom, iYZoom, showCursors, cursorA, cursorB,
+			overlayShowVoltage, overlayShowCurrent, readoutPosition, readoutFontSize,
+			suspended, pausedPacketCount, followLatestOnResume,
+			latestAverageVoltage, latestAverageCurrent
+		} = snapshot.values);
+		recentReadoutSamples.length = 0;
+		recentReadoutSamples.push(...snapshot.recentReadoutSamples);
+		updateReadout();
+		setChoiceValue(transportSelect, snapshot.transport);
+		setChoiceValue(channelSelect, channel);
+		setChoiceValue(chartModeSelect, chartMode);
+		setChoiceValue(timeDivSelect, timePerDivisionSeconds);
+		setChoiceValue(voltageDivSelect, voltagePerDivision);
+		setChoiceValue(currentDivSelect, currentPerDivision);
+		readoutVoltageToggle.checked = snapshot.readoutVChecked;
+		readoutCurrentToggle.checked = snapshot.readoutIChecked;
+		applyReadoutSettings();
+		const cursorButton = document.getElementById('cursor-btn');
+		cursorButton.textContent = `Cursors: ${showCursors ? 'On' : 'Off'}`;
+		cursorButton.setAttribute('aria-pressed', String(showCursors));
+		suspendButton.textContent = suspended ? 'Resume' : 'Pause';
+		suspendButton.disabled = activeTransport === null;
+		suspendButton.setAttribute('aria-pressed', String(suspended));
+		['download-btn', 'clear-btn', 'upload-btn'].forEach((id, index) => {
+			document.getElementById(id).disabled = snapshot.recordingButtonStates[index];
+		});
+		updateConnectionControls();
+		updateStatus(true);
+		setStatus('Demo ended · previous session restored');
+		requestRender(true);
 	}
 
 	function setSuspended(value) {
@@ -1217,6 +1791,17 @@ let uploadDailyLog = () => {};
 
 	function receiveFrame(data, isBinary = false) {
 		const receivedAt = performance.now();
+		if (demoMode) {
+			lastPacketArrivalAt = receivedAt;
+			receivedPacketSinceConnection = true;
+			return;
+		}
+		if (savingRecording) {
+			queuePacketForSave(data, isBinary, receivedAt, true);
+			lastPacketArrivalAt = receivedAt;
+			receivedPacketSinceConnection = true;
+			return;
+		}
 		saveRawBytes(data);
 		if (recordStartTime === 0) {
 			recordStartTime = Date.now();
@@ -1241,6 +1826,17 @@ let uploadDailyLog = () => {};
 	}
 
 	function processFrame(data, isBinary, receivedAt) {
+		if (demoMode) {
+			lastPacketArrivalAt = receivedAt;
+			receivedPacketSinceConnection = true;
+			return;
+		}
+		if (savingRecording) {
+			queuePacketForSave(data, isBinary, receivedAt, false);
+			lastPacketArrivalAt = receivedAt;
+			receivedPacketSinceConnection = true;
+			return;
+		}
 		const headerBytes = data.byteLength === packetBytes
 			? packetHeaderBytes
 			: data.byteLength === legacyPacketBytes ? legacyPacketHeaderBytes : 0;
@@ -1264,6 +1860,17 @@ let uploadDailyLog = () => {};
 		}
 		updateStatus();
 		requestRender(false);
+	}
+
+	function queuePacketForSave(data, isBinary, receivedAt, persistRaw) {
+		const copy = new Uint8Array(data.byteLength);
+		copy.set(new Uint8Array(data.buffer, data.byteOffset, data.byteLength));
+		packetsWaitingForSave.push({
+			data: new DataView(copy.buffer),
+			isBinary,
+			receivedAt,
+			persistRaw
+		});
 	}
 
 	function updateSampleInterval(packetNumber, sourceTimestampUs) {
@@ -1461,7 +2068,7 @@ let uploadDailyLog = () => {};
 	}
 
 	function switchAndFlushBuffer() {
-		if (writeIndex === 0 || !db) return;
+		if (savingRecording || writeIndex === 0 || !db) return;
 		const oldBuffer = activeBuffer;
 		const oldLength = writeIndex;
 		activeBuffer = standbyBuffer;
@@ -2130,6 +2737,10 @@ let uploadDailyLog = () => {};
 	}
 
 	function clearRecording() {
+		if (demoMode) {
+			setStatus('Clearing is disabled during the demo');
+			return;
+		}
 		if (!window.confirm('Delete the saved recording and clear the charts?')) return;
 		if (!db) {
 			setStatus('Storage is not ready yet');
@@ -2181,17 +2792,28 @@ let uploadDailyLog = () => {};
 	}
 
 	downloadDailyLog = function() {
+		if (demoMode) {
+			setStatus('Saving is disabled during the demo');
+			return;
+		}
 		if (!db) {
 			setStatus('Storage is not ready yet');
 			return;
 		}
-		const transaction = db.transaction(['chunks'], 'readonly');
-		const request = transaction.objectStore('chunks').getAll();
+		if (savingRecording) return;
+		savingRecording = true;
+		const transaction = db.transaction(['chunks'], 'readwrite');
+		const store = transaction.objectStore('chunks');
+		const request = store.getAll();
+		let fileSize = 0;
+		let exportStarted = false;
 		request.onsuccess = () => {
 			const chunks = request.result;
 			const parts = chunks.slice();
 			if (writeIndex > 0) parts.push(activeBuffer.slice(0, writeIndex));
 			if (parts.length === 0) {
+				savingRecording = false;
+				replayPacketsWaitingForSave();
 				setStatus('No data to download');
 				return;
 			}
@@ -2207,30 +2829,52 @@ let uploadDailyLog = () => {};
 			link.click();
 			link.remove();
 			window.setTimeout(() => URL.revokeObjectURL(url), 30000);
-			setStatus(`File downloaded: ${formatBytes(blob.size)}`);
-
-			window.setTimeout(() => {
-				const clearTransaction = db.transaction(['chunks'], 'readwrite');
-				clearTransaction.objectStore('chunks').clear();
-				clearTransaction.oncomplete = () => {
-					recordStartTime = 0;
-					writeIndex = 0;
-					activeBuffer.fill(0);
-					standbyBuffer.fill(0);
-				};
-				clearTransaction.onerror = () => {
-					console.error('Failed to clear downloaded data:', clearTransaction.error);
-					setStatus('File downloaded, but IndexedDB could not be cleared');
-				};
-			}, 1000);
+			fileSize = blob.size;
+			exportStarted = true;
+			store.clear();
 		};
-		request.onerror = () => {
-			console.error('Failed to read recording from IndexedDB:', request.error);
-			setStatus('Failed to read recording from IndexedDB');
+		transaction.oncomplete = () => {
+			if (exportStarted) {
+				resetHistory();
+				setStatus(`Saved ${formatBytes(fileSize)} · recording cleared; ready for a new session`);
+			}
+			savingRecording = false;
+			replayPacketsWaitingForSave();
+		};
+		transaction.onerror = () => {
+			console.error('Failed to save or clear recording:', transaction.error);
+			savingRecording = false;
+			replayPacketsWaitingForSave();
+			setStatus(exportStarted
+				? 'File was saved, but the previous recording could not be cleared'
+				: 'Failed to read recording from IndexedDB');
+		};
+		transaction.onabort = () => {
+			if (savingRecording) {
+				console.error('Recording save transaction was aborted:', transaction.error);
+				savingRecording = false;
+				replayPacketsWaitingForSave();
+				setStatus('Recording save was interrupted; the in-memory recording was kept');
+			}
 		};
 	};
 
+	function replayPacketsWaitingForSave() {
+		while (packetsWaitingForSave.length > 0) {
+			const packet = packetsWaitingForSave.shift();
+			if (packet.persistRaw) {
+				receiveFrame(packet.data, packet.isBinary);
+			} else {
+				processFrame(packet.data, packet.isBinary, packet.receivedAt);
+			}
+		}
+	}
+
 	uploadDailyLog = function() {
+		if (demoMode) {
+			setStatus('Opening files is disabled during the demo');
+			return;
+		}
 		const input = document.createElement('input');
 		input.type = 'file';
 		input.accept = '.bin,application/octet-stream';
@@ -2369,8 +3013,6 @@ let uploadDailyLog = () => {};
 		usbReader = null;
 		connectButton.textContent = 'Connect';
 		suspendButton.disabled = true;
-		txInput.disabled = true;
-		txForm.querySelector('button').disabled = true;
 		updateConnectionControls();
 		setStatus(reason
 			? `USB disconnected: ${reason}`

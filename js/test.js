@@ -556,7 +556,7 @@ let uploadDailyLog = () => {};
 		}
 		if (!navigator.bluetooth && navigator.serial) setChoiceValue(transportSelect, 'usb');
 		updateConnectionControls();
-		if (!navigator.bluetooth && !navigator.serial) {
+		if (!window.AndroidApp && !navigator.bluetooth && !navigator.serial) {
 			setStatus('Bluetooth and USB Serial are not supported by this browser. Use Chrome or Edge.');
 		}
 		requestScreenWakeLock();
@@ -1090,7 +1090,7 @@ let uploadDailyLog = () => {};
 
 	function setSuspended(value) {
 		suspended = value;
-		suspendButton.textContent = value ? 'Resume' : 'Suspend';
+		suspendButton.textContent = value ? 'Resume' : 'Pause';
 		suspendButton.setAttribute('aria-pressed', String(value));
 		if (!value) {
 			setStatus('Display resumed');
@@ -1253,7 +1253,7 @@ let uploadDailyLog = () => {};
 			count: samplesAdded
 		});
 
-		if (followLatest) {
+		if (followLatest && !suspended) {
 			if (chartMode === 'scope') {
 				scrollToScopeWindow();
 			} else {
@@ -1390,7 +1390,7 @@ let uploadDailyLog = () => {};
 			lastRender = performance.now();
 			drawCharts(force);
 			const expectedPacketIntervalMs = sampleIntervalMs * samplesPerPacket;
-			if (chartMode === 'scope' && packetCount > 0 && lastPacketArrivalAt !== null &&
+			if (!suspended && chartMode === 'scope' && packetCount > 0 && lastPacketArrivalAt !== null &&
 				performance.now() - lastPacketArrivalAt < Math.min(250, expectedPacketIntervalMs * 1.5)) {
 				requestRender(false, false);
 			}
@@ -1417,7 +1417,7 @@ let uploadDailyLog = () => {};
 	}
 
 	function drawCharts(force) {
-		if (chartMode === 'scope' && lastPacketArrivalAt !== null && packetCount > 0) {
+		if (!suspended && chartMode === 'scope' && lastPacketArrivalAt !== null && packetCount > 0) {
 			const elapsedSincePacket = Math.max(0, performance.now() - lastPacketArrivalAt);
 			const interpolatedSamples = Math.min(samplesPerPacket, elapsedSincePacket / sampleIntervalMs);
 			viewEnd = packetCount - 1 + interpolatedSamples;
@@ -1564,7 +1564,8 @@ let uploadDailyLog = () => {};
 		const toPhysical = scale.index === 0 ? busLsb : shuntLsb / shuntOhms;
 		context.setLineDash([]);
 
-		if (visibleSamples <= pixels) {
+		const samplesPerPixel = visibleSamples / pixels;
+		if (samplesPerPixel <= 2) {
 			context.strokeStyle = scale.color;
 			context.lineWidth = 1.8;
 			context.beginPath();
@@ -1586,10 +1587,10 @@ let uploadDailyLog = () => {};
 			return;
 		}
 
+		const columns = chartMode === 'scope' ? pixels : Math.min(pixels, visibleSamples);
 		context.strokeStyle = `${scale.color}E6`;
 		context.lineWidth = 1.6;
 		context.beginPath();
-		const columns = chartMode === 'scope' ? pixels : Math.min(pixels, visibleSamples);
 		for (let pixel = 0; pixel < columns; pixel++) {
 			const windowStart = chartMode === 'scope' ? viewStart : first;
 			const start = Math.max(first, Math.ceil(windowStart + (windowSamples * pixel) / columns));
@@ -1599,6 +1600,22 @@ let uploadDailyLog = () => {};
 			const x = left + ((pixel + 0.5) * width) / columns;
 			context.moveTo(x, valueToY(range.minimum * toPhysical, scale, top, height));
 			context.lineTo(x, valueToY(range.maximum * toPhysical, scale, top, height));
+		}
+		context.stroke();
+
+		context.strokeStyle = scale.color;
+		context.lineWidth = 1.5;
+		context.beginPath();
+		for (let pixel = 0; pixel < columns; pixel++) {
+			const windowStart = chartMode === 'scope' ? viewStart : first;
+			const start = Math.max(first, Math.ceil(windowStart + (windowSamples * pixel) / columns));
+			const end = Math.min(last + 1, Math.ceil(windowStart + (windowSamples * (pixel + 1)) / columns));
+			if (end <= start) continue;
+			const sampleIndex = Math.min(last, Math.max(start, Math.floor((start + end - 1) / 2)));
+			const x = left + ((pixel + 0.5) * width) / columns;
+			const y = valueToY(getSample(sampleIndex, scale.index) * toPhysical, scale, top, height);
+			if (pixel === 0) context.moveTo(x, y);
+			else context.lineTo(x, y);
 		}
 		context.stroke();
 	}

@@ -1181,6 +1181,10 @@ let uploadDailyLog = () => {};
 		if (!commandText) return;
 		const normalizedCommand = commandText.trim().toLowerCase();
 		const demoLanguages = { demo: 'en', demoru: 'ru', demopl: 'pl', demoen: 'en' };
+		if (normalizedCommand === 'demooff') {
+			startDemo('en', false);
+			return;
+		}
 		if (demoLanguages[normalizedCommand]) {
 			startDemo(demoLanguages[normalizedCommand]);
 			return;
@@ -1384,7 +1388,7 @@ let uploadDailyLog = () => {};
 		};
 	}
 
-	function startDemo(language) {
+	function startDemo(language, showCard = true) {
 		stopDemoAnimation();
 		if (!demoMode) {
 			demoSnapshot = captureDemoSnapshot();
@@ -1443,7 +1447,6 @@ let uploadDailyLog = () => {};
 			applyReadoutSettings();
 			demoMode = true;
 			demoGeneratedSamples = 0;
-			demoTour.hidden = false;
 			document.getElementById('download-btn').disabled = true;
 			document.getElementById('clear-btn').disabled = true;
 			document.getElementById('upload-btn').disabled = true;
@@ -1451,10 +1454,10 @@ let uploadDailyLog = () => {};
 			suspendButton.disabled = false;
 			dismissConnectionAlert(false);
 			demoSampleTimer = window.setInterval(generateDemoSamples, 20);
-			demoTourTimer = window.setInterval(advanceDemoTour, 4500);
 			requestRender(true);
 		}
 		demoLanguage = language;
+		demoTour.hidden = !showCard;
 		demoStepIndex = -1;
 		advanceDemoTour();
 	}
@@ -1508,12 +1511,15 @@ let uploadDailyLog = () => {};
 
 	function advanceDemoTour() {
 		if (!demoMode) return;
+		if (demoTourTimer !== null) {
+			window.clearTimeout(demoTourTimer);
+			demoTourTimer = null;
+		}
 		stopDemoAnimation();
 		demoStepIndex++;
 		if (demoStepIndex >= demoTourSteps.length) {
-			if (demoTourTimer !== null) window.clearInterval(demoTourTimer);
-			demoTourTimer = null;
 			demoStepIndex = demoTourSteps.length - 1;
+			return;
 		}
 		const step = demoTourSteps[demoStepIndex];
 		closeDemoMenus();
@@ -1611,8 +1617,14 @@ let uploadDailyLog = () => {};
 			setChoiceValue(timeDivSelect, timePerDivisionSeconds);
 		}
 		if (demoStepIndex === demoTourSteps.length - 1 && demoTourTimer !== null) {
-			window.clearInterval(demoTourTimer);
+			window.clearTimeout(demoTourTimer);
 			demoTourTimer = null;
+		} else if (demoStepIndex < demoTourSteps.length - 1) {
+			const delay = demoStepIndex === 10 ? 8000 : 4500;
+			demoTourTimer = window.setTimeout(() => {
+				demoTourTimer = null;
+				advanceDemoTour();
+			}, delay);
 		}
 	}
 
@@ -1710,31 +1722,58 @@ let uploadDailyLog = () => {};
 		const startY = readoutPosition.y * viewportHeight;
 		const startedAt = performance.now();
 		const segmentDuration = 850;
+		const centerReachedAt = segmentDuration * 3;
+		const moveToCornerAt = centerReachedAt + 2000;
+		const cornerReachedAt = moveToCornerAt + segmentDuration;
+		const finishAt = cornerReachedAt + 2000;
 		demoAnimationTimer = window.setInterval(() => {
 			if (!demoMode || demoStepIndex !== 10) {
 				stopDemoAnimation();
 				return;
 			}
 			const elapsed = performance.now() - startedAt;
-			const segment = Math.min(targets.length - 1, Math.floor(elapsed / segmentDuration));
-			const segmentStart = segment === 0
-				? { x: startX, y: startY }
-				: targets[segment - 1];
-			const progress = Math.min(1, (elapsed - segment * segmentDuration) / segmentDuration);
-			const eased = 1 - (1 - progress) ** 3;
-			const readoutBounds = readout.getBoundingClientRect();
-			if (segment === 2) {
-				targets[2].x = Math.max(0, (viewportWidth - readoutBounds.width) / 2);
+			if (elapsed < centerReachedAt) {
+				const segment = Math.min(targets.length - 1, Math.floor(elapsed / segmentDuration));
+				const segmentStart = segment === 0
+					? { x: startX, y: startY }
+					: targets[segment - 1];
+				const progress = Math.min(1, (elapsed - segment * segmentDuration) / segmentDuration);
+				const eased = 1 - (1 - progress) ** 3;
+				const readoutBounds = readout.getBoundingClientRect();
+				if (segment === 2) {
+					targets[2].x = Math.max(0, (viewportWidth - readoutBounds.width) / 2);
+				}
+				readoutPosition = {
+					x: (segmentStart.x + (targets[segment].x - segmentStart.x) * eased) / viewportWidth,
+					y: (segmentStart.y + (targets[segment].y - segmentStart.y) * eased) / viewportHeight
+				};
+				readoutFontSize = 18 + (64 - 18) * Math.max(0,
+					Math.min(1, (elapsed - segmentDuration * 2) / segmentDuration));
+			} else if (elapsed < moveToCornerAt) {
+				readoutFontSize = 64;
+			} else if (elapsed < cornerReachedAt) {
+				const readoutBounds = readout.getBoundingClientRect();
+				const corner = {
+					x: Math.max(0, viewportWidth - readoutBounds.width - 8),
+					y: 8
+				};
+				const progress = Math.min(1, (elapsed - moveToCornerAt) / segmentDuration);
+				const eased = 1 - (1 - progress) ** 3;
+				readoutPosition = {
+					x: readoutPosition.x + (corner.x / viewportWidth - readoutPosition.x) * eased,
+					y: readoutPosition.y + (corner.y / viewportHeight - readoutPosition.y) * eased
+				};
+				readoutFontSize = 64;
+			} else {
+				readoutFontSize = 64;
 			}
-			readoutPosition = {
-				x: (segmentStart.x + (targets[segment].x - segmentStart.x) * eased) / viewportWidth,
-				y: (segmentStart.y + (targets[segment].y - segmentStart.y) * eased) / viewportHeight
-			};
-			readoutFontSize = 18 + (64 - 18) * Math.max(0,
-				Math.min(1, (elapsed - segmentDuration * 2) / segmentDuration));
 			readout.style.fontSize = `${readoutFontSize}px`;
 			keepReadoutInBounds();
-			if (elapsed >= segmentDuration * targets.length) stopDemoAnimation();
+			if (elapsed >= finishAt) {
+				readout.classList.remove('selected', 'demo-highlight');
+				if (highlightedDemoElement === readout) highlightedDemoElement = null;
+				stopDemoAnimation();
+			}
 		}, 40);
 	}
 
@@ -1754,7 +1793,7 @@ let uploadDailyLog = () => {};
 		if (!demoMode || !demoSnapshot) return;
 		demoMode = false;
 		if (demoSampleTimer !== null) window.clearInterval(demoSampleTimer);
-		if (demoTourTimer !== null) window.clearInterval(demoTourTimer);
+		if (demoTourTimer !== null) window.clearTimeout(demoTourTimer);
 		stopDemoAnimation();
 		demoSampleTimer = null;
 		demoTourTimer = null;
@@ -2224,8 +2263,8 @@ let uploadDailyLog = () => {};
 		context.beginPath();
 		for (let step = 0; step <= horizontalSteps; step++) {
 			const y = top + (height * step) / horizontalSteps;
-			context.moveTo(left - 12, y);
-			context.lineTo(left + width + 12, y);
+			context.moveTo(left, y);
+			context.lineTo(left + width, y);
 		}
 		for (let step = 0; step <= 10; step++) {
 			const x = left + (width * step) / 10;
@@ -2449,8 +2488,8 @@ let uploadDailyLog = () => {};
 					context.strokeStyle = `${scale.color}99`;
 					context.setLineDash(cursorIndex === 0 ? [5, 3] : [2, 3]);
 					context.beginPath();
-					context.moveTo(left, y);
-					context.lineTo(left + width, y);
+					context.moveTo(left - 24, y);
+					context.lineTo(left + width + 24, y);
 					context.stroke();
 				}
 				return { name: scale.name, value };

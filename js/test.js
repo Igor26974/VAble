@@ -57,7 +57,6 @@ let uploadDailyLog = () => {};
 	const readoutVoltageToggle = document.getElementById('readout-v-toggle');
 	const readoutCurrentToggle = document.getElementById('readout-i-toggle');
 	const demoTour = document.getElementById('demo-tour');
-	const demoTourTitle = document.getElementById('demo-tour-title');
 	const demoTourText = document.getElementById('demo-tour-text');
 	const demoExitButton = document.getElementById('demo-exit');
 	const connectionAlert = document.getElementById('connection-alert');
@@ -1227,9 +1226,9 @@ let uploadDailyLog = () => {};
 			menu: 'transport-select',
 			value: 'usb',
 			text: {
-				en: 'Connection: choose Bluetooth or USB Serial here. Watch the synthetic trace begin scrolling; the demo does not connect to or send commands to the ESP32.',
-				pl: 'Połączenie: tutaj wybiera się Bluetooth lub USB Serial. Obserwuj przesuwający się wykres syntetyczny; demo nie łączy się z ESP32 ani nie wysyła poleceń.',
-				ru: 'Подключение: здесь выбирают Bluetooth или USB Serial. Наблюдайте за движущимся графиком искусственных данных; деморежим не подключается к ESP32 и не отправляет ему команды.'
+				en: 'Connection: choose Bluetooth or USB Serial here. Watch the live demo trace begin scrolling.',
+				pl: 'Połączenie: tutaj wybiera się Bluetooth lub USB Serial. Obserwuj przesuwający się wykres demonstracyjny.',
+				ru: 'Подключение: здесь выбирают Bluetooth или USB Serial. Наблюдайте, как движется демонстрационный график.'
 			}
 		},
 		{
@@ -1273,9 +1272,9 @@ let uploadDailyLog = () => {};
 			menu: 'time-div',
 			value: '0.1',
 			text: {
-				en: 'Time/div changes the horizontal time scale. In Oscilloscope mode it sets the sweep speed.',
-				pl: 'Time/div zmienia poziomą skalę czasu. W trybie Oscilloscope określa szybkość przebiegu.',
-				ru: 'Time/div меняет горизонтальный масштаб времени. В режиме осциллографа это скорость развёртки.'
+				en: 'Drag the colored handles at the left and right edges of the graph to move the voltage and current traces up or down. Their positions are independent.',
+				pl: 'Przeciągnij kolorowe uchwyty przy lewej i prawej krawędzi wykresu, aby przesunąć przebiegi napięcia i prądu w górę lub w dół. Położenia są niezależne.',
+				ru: 'Перетаскивайте цветные маркеры у левого и правого края графика, чтобы смещать графики напряжения и тока вверх или вниз. Их положение настраивается независимо.'
 			}
 		},
 		{
@@ -1295,9 +1294,9 @@ let uploadDailyLog = () => {};
 			menu: 'current-div',
 			value: '0.05',
 			text: {
-				en: 'A/div changes the current scale independently of the voltage scale.',
-				pl: 'A/div zmienia skalę prądu niezależnie od skali napięcia.',
-				ru: 'A/div меняет масштаб тока независимо от масштаба напряжения.'
+				en: 'A/div changes the current scale independently. From this step onward, the current trace also runs at about one quarter of its earlier frequency, making it easier to follow.',
+				pl: 'A/div zmienia skalę prądu niezależnie od napięcia. Od tego kroku przebieg prądu ma około cztery razy mniejszą częstotliwość, więc łatwiej go obserwować.',
+				ru: 'A/div меняет масштаб тока независимо от напряжения. Начиная с этого шага, частота графика тока примерно в четыре раза ниже — его легче рассматривать.'
 			}
 		},
 		{
@@ -1320,12 +1319,14 @@ let uploadDailyLog = () => {};
 			}
 		},
 		{
-			selector: '#bt-btn2',
-			value: 'pause',
+			selector: '#voltage-div',
+			group: 'Scales',
+			menu: 'voltage-div',
+			value: 'fit-traces',
 			text: {
-				en: 'Pause freezes the display while acquisition can continue. Resume returns to live data.',
-				pl: 'Pause zatrzymuje wyświetlanie, podczas gdy pomiar może trwać. Resume wraca do bieżących danych.',
-				ru: 'Pause останавливает отображение, пока запись может продолжаться. Resume возвращает к текущим данным.'
+				en: 'Increase V/div and A/div to bring both signals comfortably into view. The current trace shrinks and moves upward, like a two-finger pinch and drag.',
+				pl: 'Zwiększ V/działkę i A/działkę, aby oba sygnały mieściły się na wykresie. Przebieg prądu zmniejsza się i przesuwa w górę — jak przy pomniejszeniu i przeciąganiu dwoma palcami.',
+				ru: 'Увеличьте V/дел. и A/дел., чтобы оба сигнала поместились в видимой области. График тока сжимается и смещается вверх — как при уменьшении масштаба и перемещении двумя пальцами.'
 			}
 		},
 		{
@@ -1333,9 +1334,9 @@ let uploadDailyLog = () => {};
 			group: 'View',
 			value: 'readouts',
 			text: {
-				en: 'These live voltage and current readouts can be resized and dragged anywhere on the screen, including over the toolbar and history navigator.',
-				pl: 'Bieżące wartości napięcia i prądu można powiększać i przeciągać w dowolne miejsce ekranu, także nad pasek narzędzi i nawigator historii.',
-				ru: 'Текущие показания напряжения и тока можно масштабировать и перемещать в любую область экрана, включая меню и нижний график истории.'
+				en: 'These live voltage and current readouts can be resized and dragged anywhere, including over the toolbar and history navigator. Watch them move above center and enlarge.',
+				pl: 'Bieżące wartości napięcia i prądu można powiększać i przeciągać w dowolne miejsce, także nad pasek narzędzi i nawigator historii. Zobacz, jak przesuwają się ponad środek i powiększają.',
+				ru: 'Текущие показания напряжения и тока можно масштабировать и перемещать куда угодно, в том числе поверх меню и графика истории. Смотрите, как они перемещаются выше центра и увеличиваются.'
 			}
 		},
 		{
@@ -1353,18 +1354,9 @@ let uploadDailyLog = () => {};
 			group: 'Connection',
 			value: 'fullscreen',
 			text: {
-				en: 'Full screen hides browser controls when supported. Exit the demo with this button.',
-				pl: 'Pełny ekran ukrywa elementy przeglądarki, jeśli jest obsługiwany. Zakończ demo tym przyciskiem.',
-				ru: 'Полный экран скрывает элементы браузера, если поддерживается. Завершите демо кнопкой ниже.'
-			}
-		},
-		{
-			selector: '#demo-exit',
-			value: 'complete',
-			text: {
-				en: 'Tour complete. The chart uses generated demo data only. Press Exit demo to restore the previous session.',
-				pl: 'Koniec prezentacji. Wykres pokazuje wyłącznie wygenerowane dane. Naciśnij Exit demo, aby przywrócić poprzednią sesję.',
-				ru: 'Демонстрация завершена. На графике только искусственные данные. Нажмите Exit demo для возврата к предыдущей сессии.'
+				en: 'Full screen hides browser controls when supported. Close the demo with the × button in this panel.',
+				pl: 'Pełny ekran ukrywa elementy przeglądarki, jeśli jest obsługiwany. Zamknij demo przyciskiem × w tym panelu.',
+				ru: 'Полный экран скрывает элементы браузера, если поддерживается. Закройте демо крестиком в этой панели.'
 			}
 		}
 	];
@@ -1457,8 +1449,6 @@ let uploadDailyLog = () => {};
 			document.getElementById('upload-btn').disabled = true;
 			connectButton.disabled = true;
 			suspendButton.disabled = false;
-			demoExitButton.textContent = language === 'ru' ? 'Выход из демо'
-				: language === 'pl' ? 'Zakończ demo' : 'Exit demo';
 			dismissConnectionAlert(false);
 			demoSampleTimer = window.setInterval(generateDemoSamples, 20);
 			demoTourTimer = window.setInterval(advanceDemoTour, 4500);
@@ -1486,7 +1476,9 @@ let uploadDailyLog = () => {};
 			let voltage = 12.2 + 0.35 * Math.sin(index / 650) + 0.06 * Math.sin(index / 13);
 			if (phase === 1150) voltage += 1.6;
 			if (phase === 1180) voltage -= 1.3;
-			const current = 0.7 + 0.45 * Math.sin(index / 31) + 0.08 * Math.sin(index / 7);
+			const currentFrequencyDivisor = demoStepIndex >= 6 ? 4 : 1;
+			const current = 0.7 + 0.45 * Math.sin(index / (31 * currentFrequencyDivisor)) +
+				0.08 * Math.sin(index / (7 * currentFrequencyDivisor));
 			const rawVoltage = Math.round(voltage / busLsb);
 			const rawCurrent = Math.round(current / (shuntLsb / shuntOhms));
 			appendSample(rawVoltage, rawCurrent);
@@ -1538,6 +1530,8 @@ let uploadDailyLog = () => {};
 			highlightedDemoElement = element;
 		}
 
+		if (demoStepIndex === 4) animateDemoTraceOffsets();
+
 		switch (step.value) {
 			case 'usb':
 				setChoiceValue(transportSelect, 'usb');
@@ -1570,6 +1564,9 @@ let uploadDailyLog = () => {};
 				currentPerDivision = 0.05;
 				setChoiceValue(currentDivSelect, currentPerDivision);
 				break;
+			case 'fit-traces':
+				animateDemoTraceFit();
+				break;
 			case 'cursors':
 				showCursors = true;
 				cursorA = 0.28;
@@ -1592,8 +1589,10 @@ let uploadDailyLog = () => {};
 				overlayShowCurrent = true;
 				readoutVoltageToggle.checked = true;
 				readoutCurrentToggle.checked = true;
-				readoutPosition = { x: 0.25, y: 0.3 };
+				readoutPosition = { x: 0.25, y: 0.26 };
+				readoutFontSize = 18;
 				applyReadoutSettings();
+				readout.classList.add('selected');
 				animateDemoReadout();
 				break;
 			default:
@@ -1601,23 +1600,19 @@ let uploadDailyLog = () => {};
 				break;
 		}
 
-		if (demoStepIndex === 10 && suspended) setSuspended(false);
-		const title = {
-			en: `DEMO MODE · Step ${demoStepIndex + 1}/${demoTourSteps.length}`,
-			pl: `TRYB DEMO · Krok ${demoStepIndex + 1}/${demoTourSteps.length}`,
-			ru: `ДЕМО-РЕЖИМ · Шаг ${demoStepIndex + 1}/${demoTourSteps.length}`
-		};
-		const intro = {
-			en: 'Synthetic data only — no ESP32 commands are sent.',
-			pl: 'Wyłącznie dane syntetyczne — polecenia nie są wysyłane do ESP32.',
-			ru: 'Только искусственные данные — команды ESP32 не отправляются.'
-		};
-		demoTourTitle.textContent = title[demoLanguage];
-		demoTourText.textContent = `${intro[demoLanguage]} ${step.text[demoLanguage]}`;
+		demoTourText.textContent = step.text[demoLanguage];
+		demoExitButton.textContent = `${demoStepIndex + 1}/${demoTourSteps.length}`;
+		demoExitButton.setAttribute('aria-label',
+			demoLanguage === 'ru' ? 'Выход из демо'
+				: demoLanguage === 'pl' ? 'Zakończ demo' : 'Exit demo');
 		requestRender(true);
 		if (step.timeDiv !== undefined) {
 			timePerDivisionSeconds = step.timeDiv;
 			setChoiceValue(timeDivSelect, timePerDivisionSeconds);
+		}
+		if (demoStepIndex === demoTourSteps.length - 1 && demoTourTimer !== null) {
+			window.clearInterval(demoTourTimer);
+			demoTourTimer = null;
 		}
 	}
 
@@ -1660,6 +1655,46 @@ let uploadDailyLog = () => {};
 		}, 70);
 	}
 
+	function animateDemoTraceOffsets() {
+		const startV = vZeroOffset;
+		const startI = iZeroOffset;
+		const startedAt = performance.now();
+		demoAnimationTimer = window.setInterval(() => {
+			if (!demoMode || demoStepIndex !== 4) {
+				stopDemoAnimation();
+				return;
+			}
+			const progress = Math.min(1, (performance.now() - startedAt) / 1800);
+			const eased = 1 - (1 - progress) ** 3;
+			vZeroOffset = startV + (0.4 - startV) * eased;
+			iZeroOffset = startI + (0.68 - startI) * eased;
+			requestRender(false);
+			if (progress >= 1) stopDemoAnimation();
+		}, 40);
+	}
+
+	function animateDemoTraceFit() {
+		const startVoltageScale = voltagePerDivision;
+		const startCurrentScale = currentPerDivision;
+		const startCurrentOffset = iZeroOffset;
+		const startedAt = performance.now();
+		demoAnimationTimer = window.setInterval(() => {
+			if (!demoMode || demoStepIndex !== 9) {
+				stopDemoAnimation();
+				return;
+			}
+			const progress = Math.min(1, (performance.now() - startedAt) / 1800);
+			const eased = 1 - (1 - progress) ** 3;
+			voltagePerDivision = startVoltageScale + (2 - startVoltageScale) * eased;
+			currentPerDivision = startCurrentScale + (2 - startCurrentScale) * eased;
+			iZeroOffset = startCurrentOffset + (0.34 - startCurrentOffset) * eased;
+			setChoiceValue(voltageDivSelect, voltagePerDivision);
+			setChoiceValue(currentDivSelect, currentPerDivision);
+			requestRender(false);
+			if (progress >= 1) stopDemoAnimation();
+		}, 40);
+	}
+
 	function animateDemoReadout() {
 		const viewportWidth = Math.max(1, window.innerWidth);
 		const viewportHeight = Math.max(1, window.innerHeight);
@@ -1669,7 +1704,7 @@ let uploadDailyLog = () => {};
 		const targets = [
 			{ x: maxX, y: 8 },
 			{ x: maxX, y: maxY },
-			{ x: 8, y: maxY }
+			{ x: maxX / 2, y: viewportHeight / 3 }
 		];
 		const startX = readoutPosition.x * viewportWidth;
 		const startY = readoutPosition.y * viewportHeight;
@@ -1687,10 +1722,17 @@ let uploadDailyLog = () => {};
 				: targets[segment - 1];
 			const progress = Math.min(1, (elapsed - segment * segmentDuration) / segmentDuration);
 			const eased = 1 - (1 - progress) ** 3;
+			const readoutBounds = readout.getBoundingClientRect();
+			if (segment === 2) {
+				targets[2].x = Math.max(0, (viewportWidth - readoutBounds.width) / 2);
+			}
 			readoutPosition = {
 				x: (segmentStart.x + (targets[segment].x - segmentStart.x) * eased) / viewportWidth,
 				y: (segmentStart.y + (targets[segment].y - segmentStart.y) * eased) / viewportHeight
 			};
+			readoutFontSize = 18 + (64 - 18) * Math.max(0,
+				Math.min(1, (elapsed - segmentDuration * 2) / segmentDuration));
+			readout.style.fontSize = `${readoutFontSize}px`;
 			keepReadoutInBounds();
 			if (elapsed >= segmentDuration * targets.length) stopDemoAnimation();
 		}, 40);
@@ -1720,6 +1762,7 @@ let uploadDailyLog = () => {};
 		closeDemoMenus();
 		if (highlightedDemoElement) highlightedDemoElement.classList.remove('demo-highlight');
 		highlightedDemoElement = null;
+		readout.classList.remove('selected');
 		for (const key of Object.keys(series)) series[key] = demoSnapshot.series[key];
 		const snapshot = demoSnapshot;
 		demoSnapshot = null;
@@ -2181,8 +2224,8 @@ let uploadDailyLog = () => {};
 		context.beginPath();
 		for (let step = 0; step <= horizontalSteps; step++) {
 			const y = top + (height * step) / horizontalSteps;
-			context.moveTo(left, y);
-			context.lineTo(left + width, y);
+			context.moveTo(left - 12, y);
+			context.lineTo(left + width + 12, y);
 		}
 		for (let step = 0; step <= 10; step++) {
 			const x = left + (width * step) / 10;
@@ -2358,12 +2401,17 @@ let uploadDailyLog = () => {};
 	function drawOffsetHandle(context, x, y, color, isLeft) {
 		const direction = isLeft ? 1 : -1;
 		context.fillStyle = color;
+		if (demoMode && (demoStepIndex === 4 || demoStepIndex === 9)) {
+			context.shadowColor = color;
+			context.shadowBlur = 12;
+		}
 		context.beginPath();
 		context.moveTo(x, y);
 		context.lineTo(x + direction * 10, y - 6);
 		context.lineTo(x + direction * 10, y + 6);
 		context.closePath();
 		context.fill();
+		context.shadowBlur = 0;
 	}
 
 	function drawTimeAxis(context, left, right, bottom, first, last) {

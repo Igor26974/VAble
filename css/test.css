@@ -399,11 +399,11 @@ canvas {
 .demo-tour {
   position: fixed;
   z-index: 8;
-  top: 63%;
+  bottom: calc(70px + 12px);
   left: 50%;
   width: min(88vw, 560px);
-  padding: 14px 18px;
-  transform: translate(-50%, -50%);
+  padding: 8px 12px 10px;
+  transform: translateX(-50%);
   border: 1px solid #6f9fbd;
   border-radius: 8px;
   background: rgba(15, 23, 30, .9);
@@ -417,14 +417,15 @@ canvas {
   display: none;
 }
 
-.demo-tour p {
-  margin: 0 0 8px;
-  line-height: 1.4;
+.demo-tour-header {
+  display: flex;
+  justify-content: flex-end;
+  min-height: 23px;
 }
 
-#demo-tour-title {
-  color: #9ddcff;
-  font-weight: 700;
+.demo-tour p {
+  margin: 0;
+  line-height: 1.4;
 }
 
 #demo-tour-text {
@@ -432,8 +433,24 @@ canvas {
 }
 
 #demo-exit {
-  min-height: 28px;
+  display: flex;
+  min-width: 46px;
+  min-height: 23px;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 1px 5px;
+  border-color: #6f9fbd;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 700;
   pointer-events: auto;
+}
+
+#demo-exit::after {
+  content: "×";
+  font-size: 19px;
+  line-height: 1;
 }
 
 .demo-highlight {
@@ -478,5 +495,9 @@ canvas {
 
   .navigator-panel {
     flex-basis: 56px;
+  }
+
+  .demo-tour {
+    bottom: calc(56px + 10px);
   }
 }
